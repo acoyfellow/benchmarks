@@ -1,0 +1,25 @@
+{
+  // Cloudflare Workers AI Benchmark Platform
+  "name": "benchmarks-api",
+  "main": "src/api/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["experimental"],
+  "worker_loaders": [
+    { "binding": "LOADER" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "benchmarks",
+      "database_id": "YOUR_D1_ID"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "CF_ACCOUNT_ID": "YOUR_ACCOUNT_ID"
+  },
+  // Note: Set CF_API_TOKEN as a Wrangler secret: `wrangler secret put CF_API_TOKEN`
+  // For local dev, add to .dev.vars (already in .gitignore)
+}

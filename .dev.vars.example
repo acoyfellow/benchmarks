@@ -1,0 +1,2 @@
+# Copy to .dev.vars for local development (never commit .dev.vars)
+CF_API_TOKEN=your_cloudflare_api_token_here
