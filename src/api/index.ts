@@ -1,6 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 import { Hono } from "hono"
 import { cors } from "hono/cors"
+import { Effect } from "effect"
+import { Db } from "../services/Db.js"
 import modelsRoute from "./routes/models.js"
 import benchmarksRoute from "./routes/benchmarks.js"
 import runsRoute from "./routes/runs.js"
@@ -35,6 +37,21 @@ app.use(
     },
   })
 )
+
+app.get("/api/leaderboard", async (c) => {
+  const result = await Effect.gen(function* () {
+    const db = yield* Db
+    const entries = yield* db.getLeaderboard()
+    return { leaderboard: entries }
+  }).pipe(
+    Effect.provide(Db.layer(c.env.DB)),
+    Effect.catchAll((e) =>
+      Effect.succeed({ leaderboard: [], error: String(e) })
+    ),
+    Effect.runPromise
+  )
+  return c.json(result)
+})
 
 app.route("/api/models", modelsRoute)
 app.route("/api/benchmarks", benchmarksRoute)

@@ -50,6 +50,18 @@ interface HistoryRun {
   created_at: number
 }
 
+interface LeaderboardEntry {
+  model_id: string
+  runs: number
+  avg_tool_pct: number
+  avg_args_pct: number
+  avg_latency_ms: number
+  best_tool_pct: number
+  best_run_id: string
+}
+
+type SidebarView = "leaderboard" | "recent"
+
 /* ── Colors / tokens ───────────────────────────────────── */
 
 const C = {
@@ -160,6 +172,8 @@ export default function BenchmarkRunner() {
   const [status, setStatus] = useState<string | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [history, setHistory] = useState<HistoryRun[]>([])
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
+  const [sidebarView, setSidebarView] = useState<SidebarView>("leaderboard")
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load models + benchmarks + history
@@ -183,7 +197,18 @@ export default function BenchmarkRunner() {
       .catch((e) => setFetchError(`Failed to load benchmarks: ${String(e)}`))
 
     loadHistory()
+    loadLeaderboard()
   }, [])
+
+  function loadLeaderboard() {
+    fetch("/api/leaderboard")
+      .then(async (r) => {
+        if (!r.ok) return
+        const d = (await r.json()) as { leaderboard?: LeaderboardEntry[] }
+        setLeaderboard(d.leaderboard ?? [])
+      })
+      .catch(() => { /* ignore */ })
+  }
 
   function loadHistory() {
     fetch("/api/runs?limit=20")
@@ -216,6 +241,7 @@ export default function BenchmarkRunner() {
             stopPolling()
             setLoading(false)
             loadHistory()
+            loadLeaderboard()
           }
         } catch (e) {
           setFetchError(`Polling error: ${String(e)}`)
@@ -330,45 +356,138 @@ export default function BenchmarkRunner() {
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Workers AI · Tool Calling</div>
           </div>
 
-          <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Recent Runs</div>
+          {/* Sidebar tabs */}
+          <div style={{ display: "flex", borderBottom: `1px solid ${C.border}` }}>
+            {(["leaderboard", "recent"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setSidebarView(tab)}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: sidebarView === tab ? `2px solid ${C.accent}` : "2px solid transparent",
+                  color: sidebarView === tab ? C.text : C.textMuted,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                {tab === "leaderboard" ? "\u{1F3C6} Ranking" : "\u{1F552} Recent"}
+              </button>
+            ))}
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px" }}>
-            {history.length === 0 && (
-              <div style={{ padding: 16, fontSize: 12, color: C.textDim, textAlign: "center" }}>No runs yet</div>
+            {/* Leaderboard view */}
+            {sidebarView === "leaderboard" && (
+              <>
+                {leaderboard.length === 0 && (
+                  <div style={{ padding: 16, fontSize: 12, color: C.textDim, textAlign: "center" }}>No data yet</div>
+                )}
+                {leaderboard.map((entry, rank) => (
+                  <button
+                    key={entry.model_id}
+                    onClick={() => loadRun(entry.best_run_id)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      marginBottom: 2,
+                      background: "transparent",
+                      border: "none",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      color: C.text,
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = C.surfaceHover}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: 22, height: 22, borderRadius: 4, fontSize: rank < 3 ? 14 : 11, fontWeight: 700,
+                        background: rank === 0 ? "rgba(234,179,8,0.15)" : rank === 1 ? "rgba(156,163,175,0.15)" : rank === 2 ? "rgba(180,83,9,0.15)" : C.border,
+                        color: rank === 0 ? "#eab308" : rank === 1 ? "#9ca3af" : rank === 2 ? "#b45309" : C.textMuted,
+                      }}>
+                        {rank < 3 ? ["\u{1F947}", "\u{1F948}", "\u{1F949}"][rank] : rank + 1}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 600, fontFamily: C.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                        {shortModel(entry.model_id)}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 12, paddingLeft: 30 }}>
+                      <div style={{ fontSize: 11 }}>
+                        <span style={{ color: entry.avg_tool_pct >= 80 ? C.green : entry.avg_tool_pct >= 50 ? C.yellow : C.red, fontWeight: 700, fontFamily: C.mono }}>
+                          {entry.avg_tool_pct}%
+                        </span>
+                        <span style={{ color: C.textDim, marginLeft: 2 }}>tool</span>
+                      </div>
+                      <div style={{ fontSize: 11 }}>
+                        <span style={{ color: entry.avg_args_pct >= 80 ? C.green : entry.avg_args_pct >= 50 ? C.yellow : C.red, fontWeight: 700, fontFamily: C.mono }}>
+                          {entry.avg_args_pct}%
+                        </span>
+                        <span style={{ color: C.textDim, marginLeft: 2 }}>args</span>
+                      </div>
+                      <div style={{ fontSize: 11 }}>
+                        <span style={{ color: C.textMuted, fontFamily: C.mono }}>
+                          {entry.avg_latency_ms > 1000 ? `${(entry.avg_latency_ms / 1000).toFixed(1)}s` : `${entry.avg_latency_ms}ms`}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ paddingLeft: 30, marginTop: 3, fontSize: 10, color: C.textDim }}>
+                      {entry.runs} run{entry.runs !== 1 ? "s" : ""}
+                    </div>
+                  </button>
+                ))}
+              </>
             )}
-            {history.map((h) => (
-              <button
-                key={h.id}
-                onClick={() => loadRun(h.id)}
-                style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "10px 12px",
-                  marginBottom: 2,
-                  background: runId === h.id ? C.surfaceHover : "transparent",
-                  border: "none",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  color: C.text,
-                  transition: "background 0.15s",
-                }}
-                onMouseEnter={(e) => { if (runId !== h.id) e.currentTarget.style.background = C.surfaceHover }}
-                onMouseLeave={(e) => { if (runId !== h.id) e.currentTarget.style.background = "transparent" }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, fontFamily: C.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 }}>
-                    {shortModel(h.model_id)}
-                  </span>
-                  <StatusPill status={h.status} />
-                </div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>
-                  {h.created_at ? formatTime(h.created_at) : "—"}
-                </div>
-              </button>
-            ))}
+
+            {/* Recent runs view */}
+            {sidebarView === "recent" && (
+              <>
+                {history.length === 0 && (
+                  <div style={{ padding: 16, fontSize: 12, color: C.textDim, textAlign: "center" }}>No runs yet</div>
+                )}
+                {history.map((h) => (
+                  <button
+                    key={h.id}
+                    onClick={() => loadRun(h.id)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      marginBottom: 2,
+                      background: runId === h.id ? C.surfaceHover : "transparent",
+                      border: "none",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      color: C.text,
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={(e) => { if (runId !== h.id) e.currentTarget.style.background = C.surfaceHover }}
+                    onMouseLeave={(e) => { if (runId !== h.id) e.currentTarget.style.background = "transparent" }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, fontFamily: C.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 }}>
+                        {shortModel(h.model_id)}
+                      </span>
+                      <StatusPill status={h.status} />
+                    </div>
+                    <div style={{ fontSize: 11, color: C.textMuted }}>
+                      {h.created_at ? formatTime(h.created_at) : "—"}
+                    </div>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         </aside>
 

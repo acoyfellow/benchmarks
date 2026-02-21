@@ -37,6 +37,16 @@ export interface Result {
   created_at: number
 }
 
+export interface LeaderboardEntry {
+  model_id: string
+  runs: number
+  avg_tool_pct: number
+  avg_args_pct: number
+  avg_latency_ms: number
+  best_tool_pct: number
+  best_run_id: string
+}
+
 interface DbMethods {
   getBenchmarks: () => Effect.Effect<BenchmarkDefinition[], DbError>
   getBenchmark: (id: string) => Effect.Effect<BenchmarkDefinition | null, DbError>
@@ -52,6 +62,7 @@ interface DbMethods {
     timestamps?: { started_at?: number; completed_at?: number }
   ) => Effect.Effect<void, DbError>
   listRuns: (limit?: number) => Effect.Effect<Run[], DbError>
+  getLeaderboard: () => Effect.Effect<LeaderboardEntry[], DbError>
   getResults: (runId: string) => Effect.Effect<Result[], DbError>
   insertResult: (result: Result) => Effect.Effect<void, DbError>
 }
@@ -70,6 +81,7 @@ export class Db extends Effect.Service<Db>()("Db", {
     getRun: () => Effect.fail(notInitialized()),
     updateRunStatus: () => Effect.fail(notInitialized()),
     listRuns: () => Effect.fail(notInitialized()),
+    getLeaderboard: () => Effect.fail(notInitialized()),
     getResults: () => Effect.fail(notInitialized()),
     insertResult: () => Effect.fail(notInitialized()),
   }),
@@ -164,6 +176,41 @@ export class Db extends Effect.Service<Db>()("Db", {
                 )
                 .bind(limit)
                 .all<Run>()
+                .then((r) => r.results),
+            catch: (e) => new DbError({ message: String(e) }),
+          }),
+
+        getLeaderboard: () =>
+          Effect.tryPromise({
+            try: () =>
+              db
+                .prepare(
+                  `SELECT
+                    r.model_id,
+                    COUNT(DISTINCT r.id) as runs,
+                    ROUND(AVG(sub.tool_pct)) as avg_tool_pct,
+                    ROUND(AVG(sub.args_pct)) as avg_args_pct,
+                    ROUND(AVG(sub.avg_lat)) as avg_latency_ms,
+                    MAX(sub.tool_pct) as best_tool_pct,
+                    sub.best_run_id
+                  FROM runs r
+                  JOIN (
+                    SELECT
+                      run_id,
+                      ROUND(100.0 * SUM(tool_correct) / COUNT(*)) as tool_pct,
+                      ROUND(100.0 * SUM(args_correct) / COUNT(*)) as args_pct,
+                      AVG(latency_ms) as avg_lat,
+                      run_id as best_run_id
+                    FROM results
+                    WHERE error IS NULL
+                    GROUP BY run_id
+                    HAVING COUNT(*) > 0
+                  ) sub ON r.id = sub.run_id
+                  WHERE r.status = 'complete'
+                  GROUP BY r.model_id
+                  ORDER BY avg_tool_pct DESC, avg_args_pct DESC, avg_latency_ms ASC`
+                )
+                .all<LeaderboardEntry>()
                 .then((r) => r.results),
             catch: (e) => new DbError({ message: String(e) }),
           }),
