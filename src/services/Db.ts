@@ -37,206 +37,160 @@ export interface Result {
   created_at: number
 }
 
+interface DbMethods {
+  getBenchmarks: () => Effect.Effect<BenchmarkDefinition[], DbError>
+  getBenchmark: (id: string) => Effect.Effect<BenchmarkDefinition | null, DbError>
+  createRun: (run: {
+    id: string
+    benchmark_id: string
+    model_id: string
+  }) => Effect.Effect<{ id: string; benchmark_id: string; model_id: string }, DbError>
+  getRun: (id: string) => Effect.Effect<Run | null, DbError>
+  updateRunStatus: (
+    id: string,
+    status: string,
+    timestamps?: { started_at?: number; completed_at?: number }
+  ) => Effect.Effect<void, DbError>
+  getResults: (runId: string) => Effect.Effect<Result[], DbError>
+  insertResult: (result: Result) => Effect.Effect<void, DbError>
+}
+
+const notInitialized = (): DbError =>
+  new DbError({
+    message:
+      "Db service not initialized. Provide Db.layer when building the Effect environment.",
+  })
+
 export class Db extends Effect.Service<Db>()("Db", {
-  effect: Effect.gen(function* () {
-    return {
-      getBenchmarks: Effect.fn("Db.getBenchmarks")(function* () {
-        return yield* Effect.fail(
-          new DbError({
-            message:
-              "Db service not initialized. Provide Db.layer when building the Effect environment.",
-          })
-        )
-      }),
-      getBenchmark: Effect.fn("Db.getBenchmark")(function* (_id: string) {
-        return yield* Effect.fail(
-          new DbError({
-            message:
-              "Db service not initialized. Provide Db.layer when building the Effect environment.",
-          })
-        )
-      }),
-      createRun: Effect.fn("Db.createRun")(function* (run: {
-        id: string
-        benchmark_id: string
-        model_id: string
-      }) {
-        return yield* Effect.fail(
-          new DbError({
-            message:
-              "Db service not initialized. Provide Db.layer when building the Effect environment.",
-          })
-        )
-      }),
-      getRun: Effect.fn("Db.getRun")(function* (_id: string) {
-        return yield* Effect.fail(
-          new DbError({
-            message:
-              "Db service not initialized. Provide Db.layer when building the Effect environment.",
-          })
-        )
-      }),
-      updateRunStatus: Effect.fn("Db.updateRunStatus")(function* (
-        _id: string,
-        _status: string,
-        _timestamps?: { started_at?: number; completed_at?: number }
-      ) {
-        return yield* Effect.fail(
-          new DbError({
-            message:
-              "Db service not initialized. Provide Db.layer when building the Effect environment.",
-          })
-        )
-      }),
-      getResults: Effect.fn("Db.getResults")(function* (_runId: string) {
-        return yield* Effect.fail(
-          new DbError({
-            message:
-              "Db service not initialized. Provide Db.layer when building the Effect environment.",
-          })
-        )
-      }),
-      insertResult: Effect.fn("Db.insertResult")(function* (_result: Result) {
-        return yield* Effect.fail(
-          new DbError({
-            message:
-              "Db service not initialized. Provide Db.layer when building the Effect environment.",
-          })
-        )
-      }),
-    }
+  effect: Effect.succeed<DbMethods>({
+    getBenchmarks: () => Effect.fail(notInitialized()),
+    getBenchmark: () => Effect.fail(notInitialized()),
+    createRun: () => Effect.fail(notInitialized()),
+    getRun: () => Effect.fail(notInitialized()),
+    updateRunStatus: () => Effect.fail(notInitialized()),
+    getResults: () => Effect.fail(notInitialized()),
+    insertResult: () => Effect.fail(notInitialized()),
   }),
 }) {
   static layer = (db: D1Database) =>
-    Layer.effect(
+    Layer.succeed(
       Db,
-      Effect.gen(function* () {
-        return {
-          getBenchmarks: Effect.fn("Db.getBenchmarks")(function* () {
-            return yield* Effect.tryPromise({
-              try: () =>
-                db
-                  .prepare("SELECT * FROM benchmark_definitions")
-                  .all<BenchmarkDefinition>()
-                  .then((r) => r.results),
-              catch: (e) => new DbError({ message: String(e) }),
-            })
+      {
+        getBenchmarks: () =>
+          Effect.tryPromise({
+            try: () =>
+              db
+                .prepare("SELECT * FROM benchmark_definitions")
+                .all<BenchmarkDefinition>()
+                .then((r) => r.results),
+            catch: (e) => new DbError({ message: String(e) }),
           }),
 
-          getBenchmark: Effect.fn("Db.getBenchmark")(function* (id: string) {
-            return yield* Effect.tryPromise({
-              try: () =>
-                db
-                  .prepare("SELECT * FROM benchmark_definitions WHERE id = ?")
-                  .bind(id)
-                  .first<BenchmarkDefinition>(),
-              catch: (e) => new DbError({ message: String(e) }),
-            })
+        getBenchmark: (id: string) =>
+          Effect.tryPromise({
+            try: () =>
+              db
+                .prepare("SELECT * FROM benchmark_definitions WHERE id = ?")
+                .bind(id)
+                .first<BenchmarkDefinition>(),
+            catch: (e) => new DbError({ message: String(e) }),
           }),
 
-          createRun: Effect.fn("Db.createRun")(function* (run: {
-            id: string
-            benchmark_id: string
-            model_id: string
-          }) {
-            yield* Effect.tryPromise({
-              try: () =>
-                db
-                  .prepare(
-                    "INSERT INTO runs (id, benchmark_id, model_id, status) VALUES (?, ?, ?, 'pending')"
-                  )
-                  .bind(run.id, run.benchmark_id, run.model_id)
-                  .run(),
-              catch: (e) => new DbError({ message: String(e) }),
-            })
-            return run
+        createRun: (run: {
+          id: string
+          benchmark_id: string
+          model_id: string
+        }) =>
+          Effect.tryPromise({
+            try: () =>
+              db
+                .prepare(
+                  "INSERT INTO runs (id, benchmark_id, model_id, status) VALUES (?, ?, ?, 'pending')"
+                )
+                .bind(run.id, run.benchmark_id, run.model_id)
+                .run(),
+            catch: (e) => new DbError({ message: String(e) }),
+          }).pipe(Effect.map(() => run)),
+
+        getRun: (id: string) =>
+          Effect.tryPromise({
+            try: () =>
+              db
+                .prepare("SELECT * FROM runs WHERE id = ?")
+                .bind(id)
+                .first<Run>(),
+            catch: (e) => new DbError({ message: String(e) }),
           }),
 
-          getRun: Effect.fn("Db.getRun")(function* (id: string) {
-            return yield* Effect.tryPromise({
-              try: () =>
-                db
-                  .prepare("SELECT * FROM runs WHERE id = ?")
-                  .bind(id)
-                  .first<Run>(),
-              catch: (e) => new DbError({ message: String(e) }),
-            })
+        updateRunStatus: (
+          id: string,
+          status: string,
+          timestamps?: { started_at?: number; completed_at?: number }
+        ) => {
+          const setClauses: string[] = ["status = ?"]
+          const params: unknown[] = [status]
+
+          if (timestamps?.started_at !== undefined) {
+            setClauses.push("started_at = ?")
+            params.push(timestamps.started_at)
+          }
+
+          if (timestamps?.completed_at !== undefined) {
+            setClauses.push("completed_at = ?")
+            params.push(timestamps.completed_at)
+          }
+
+          const query = `UPDATE runs SET ${setClauses.join(", ")} WHERE id = ?`
+          params.push(id)
+
+          return Effect.tryPromise({
+            try: () =>
+              db
+                .prepare(query)
+                .bind(...params)
+                .run(),
+            catch: (e) => new DbError({ message: String(e) }),
+          }).pipe(Effect.asVoid)
+        },
+
+        getResults: (runId: string) =>
+          Effect.tryPromise({
+            try: () =>
+              db
+                .prepare(
+                  "SELECT * FROM results WHERE run_id = ? ORDER BY prompt_index"
+                )
+                .bind(runId)
+                .all<Result>()
+                .then((r) => r.results),
+            catch: (e) => new DbError({ message: String(e) }),
           }),
 
-          updateRunStatus: Effect.fn("Db.updateRunStatus")(function* (
-            id: string,
-            status: string,
-            timestamps?: { started_at?: number; completed_at?: number }
-          ) {
-            const setClauses: string[] = ["status = ?"]
-            const params: unknown[] = [status]
-
-            if (timestamps?.started_at !== undefined) {
-              setClauses.push("started_at = ?")
-              params.push(timestamps.started_at)
-            }
-
-            if (timestamps?.completed_at !== undefined) {
-              setClauses.push("completed_at = ?")
-              params.push(timestamps.completed_at)
-            }
-
-            const query = `UPDATE runs SET ${setClauses.join(", ")} WHERE id = ?`
-            params.push(id)
-
-            yield* Effect.tryPromise({
-              try: () =>
-                db
-                  .prepare(query)
-                  .bind(...params)
-                  .run(),
-              catch: (e) => new DbError({ message: String(e) }),
-            })
-          }),
-
-          getResults: Effect.fn("Db.getResults")(function* (runId: string) {
-            return yield* Effect.tryPromise({
-              try: () =>
-                db
-                  .prepare(
-                    "SELECT * FROM results WHERE run_id = ? ORDER BY prompt_index"
-                  )
-                  .bind(runId)
-                  .all<Result>()
-                  .then((r) => r.results),
-              catch: (e) => new DbError({ message: String(e) }),
-            })
-          }),
-
-          insertResult: Effect.fn("Db.insertResult")(function* (
-            result: Result
-          ) {
-            yield* Effect.tryPromise({
-              try: () =>
-                db
-                  .prepare(
-                    `INSERT INTO results (id, run_id, prompt_index, prompt, expected_tool, expected_args, actual_response, tool_called, tool_correct, args_correct, latency_ms, error)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-                  )
-                  .bind(
-                    result.id,
-                    result.run_id,
-                    result.prompt_index,
-                    result.prompt,
-                    result.expected_tool,
-                    result.expected_args,
-                    result.actual_response,
-                    result.tool_called,
-                    result.tool_correct,
-                    result.args_correct,
-                    result.latency_ms,
-                    result.error
-                  )
-                  .run(),
-              catch: (e) => new DbError({ message: String(e) }),
-            })
-          }),
-        } as unknown as Db
-      })
+        insertResult: (result: Result) =>
+          Effect.tryPromise({
+            try: () =>
+              db
+                .prepare(
+                  `INSERT INTO results (id, run_id, prompt_index, prompt, expected_tool, expected_args, actual_response, tool_called, tool_correct, args_correct, latency_ms, error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                )
+                .bind(
+                  result.id,
+                  result.run_id,
+                  result.prompt_index,
+                  result.prompt,
+                  result.expected_tool,
+                  result.expected_args,
+                  result.actual_response,
+                  result.tool_called,
+                  result.tool_correct,
+                  result.args_correct,
+                  result.latency_ms,
+                  result.error
+                )
+                .run(),
+            catch: (e) => new DbError({ message: String(e) }),
+          }).pipe(Effect.asVoid),
+      } as unknown as Db
     )
 }

@@ -1,3 +1,5 @@
 # Copy to .dev.vars for local development (never commit .dev.vars)
 CF_ACCOUNT_ID=your_cloudflare_account_id_here
 CF_API_TOKEN=your_cloudflare_api_token_here
+CF_EMAIL=your_cloudflare_email_here
+CF_API_KEY=your_cloudflare_global_api_key_here

@@ -14,6 +14,8 @@ export interface Env {
   LOADER?: any
   CF_ACCOUNT_ID: string
   CF_API_TOKEN: string
+  CF_EMAIL: string
+  CF_API_KEY: string
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -41,20 +43,6 @@ app.route("/api/benchmarks", benchmarksRoute)
 app.route("/api/runs", runsRoute)
 app.route("/api/runs", resultsRoute)
 
-// Serve static assets / SPA fallback
-app.get("*", async (c) => {
-  return c.html(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Benchmarks — Workers AI</title>
-</head>
-<body>
-  <div id="root"></div>
-  <script type="module" src="/assets/main.js"></script>
-</body>
-</html>`)
-})
+// Static assets and SPA fallback handled by the assets binding in wrangler.jsonc
 
 export default app

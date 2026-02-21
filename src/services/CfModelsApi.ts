@@ -24,11 +24,17 @@ export class CfModelsApi extends Effect.Service<CfModelsApi>()("CfModelsApi", {
     }
   }),
 }) {
-  static layer = (accountId: string, apiToken: string) =>
+  static layer = (accountId: string, apiToken: string, opts?: { email?: string; apiKey?: string }) =>
     Layer.effect(
       CfModelsApi,
       Effect.gen(function* () {
         const http = yield* HttpClient.HttpClient
+
+        // Use global API key auth if email+key provided, otherwise Bearer token
+        const authHeaders: Record<string, string> = opts?.email && opts?.apiKey
+          ? { "X-Auth-Email": opts.email, "X-Auth-Key": opts.apiKey }
+          : { Authorization: `Bearer ${apiToken}` }
+
         return {
           listModels: Effect.fn("CfModelsApi.listModels")(function* () {
             if (modelsCache !== null) {
@@ -38,7 +44,7 @@ export class CfModelsApi extends Effect.Service<CfModelsApi>()("CfModelsApi", {
             const raw = yield* http
               .get(
                 `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/models/search`,
-                { headers: { Authorization: `Bearer ${apiToken}` } }
+                { headers: authHeaders }
               )
               .pipe(
                 Effect.flatMap((resp) => resp.json),

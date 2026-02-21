@@ -3,20 +3,24 @@
   "name": "benchmarks-api",
   "main": "src/api/index.ts",
   "compatibility_date": "2025-01-01",
-  "compatibility_flags": ["experimental"],
-  "worker_loaders": [
-    { "binding": "LOADER" }
-  ],
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "benchmarks",
-      "database_id": "YOUR_D1_ID"
+      "database_id": "b473fe39-d27c-471f-8ed3-b5fbe2a968ee"
     }
   ],
   "ai": {
     "binding": "AI"
   },
-  // Secrets CF_ACCOUNT_ID and CF_API_TOKEN are set via `wrangler secret put` in CI.
+  "routes": [
+    { "pattern": "benchmarks.coey.dev", "custom_domain": true }
+  ]
+  // Secrets CF_ACCOUNT_ID, CF_API_TOKEN, CF_EMAIL, CF_API_KEY are set via `wrangler secret put` in CI.
   // For local dev, add them to .dev.vars (already in .gitignore)
 }

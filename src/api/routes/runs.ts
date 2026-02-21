@@ -97,10 +97,8 @@ app.get("/:id", async (c) => {
   }).pipe(
     Effect.provide(Db.layer(c.env.DB)),
     Effect.catchAll((e) => {
-      const status =
-        typeof (e as any)?.status === "number" ? (e as any).status : 500
       const message = e instanceof Error ? e.message : String(e)
-      return Effect.succeed(c.json({ error: message }, status as number))
+      return Effect.succeed(c.json({ error: message }, 500 as const))
     }),
     Effect.runPromise
   )
