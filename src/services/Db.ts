@@ -41,33 +41,68 @@ export class Db extends Effect.Service<Db>()("Db", {
   effect: Effect.gen(function* () {
     return {
       getBenchmarks: Effect.fn("Db.getBenchmarks")(function* () {
-        return [] as BenchmarkDefinition[]
+        return yield* Effect.fail(
+          new DbError({
+            message:
+              "Db service not initialized. Provide Db.layer when building the Effect environment.",
+          })
+        )
       }),
       getBenchmark: Effect.fn("Db.getBenchmark")(function* (_id: string) {
-        return null as BenchmarkDefinition | null
+        return yield* Effect.fail(
+          new DbError({
+            message:
+              "Db service not initialized. Provide Db.layer when building the Effect environment.",
+          })
+        )
       }),
       createRun: Effect.fn("Db.createRun")(function* (run: {
         id: string
         benchmark_id: string
         model_id: string
       }) {
-        return run
+        return yield* Effect.fail(
+          new DbError({
+            message:
+              "Db service not initialized. Provide Db.layer when building the Effect environment.",
+          })
+        )
       }),
       getRun: Effect.fn("Db.getRun")(function* (_id: string) {
-        return null as Run | null
+        return yield* Effect.fail(
+          new DbError({
+            message:
+              "Db service not initialized. Provide Db.layer when building the Effect environment.",
+          })
+        )
       }),
       updateRunStatus: Effect.fn("Db.updateRunStatus")(function* (
         _id: string,
         _status: string,
         _timestamps?: { started_at?: number; completed_at?: number }
       ) {
-        return undefined
+        return yield* Effect.fail(
+          new DbError({
+            message:
+              "Db service not initialized. Provide Db.layer when building the Effect environment.",
+          })
+        )
       }),
       getResults: Effect.fn("Db.getResults")(function* (_runId: string) {
-        return [] as Result[]
+        return yield* Effect.fail(
+          new DbError({
+            message:
+              "Db service not initialized. Provide Db.layer when building the Effect environment.",
+          })
+        )
       }),
       insertResult: Effect.fn("Db.insertResult")(function* (_result: Result) {
-        return undefined
+        return yield* Effect.fail(
+          new DbError({
+            message:
+              "Db service not initialized. Provide Db.layer when building the Effect environment.",
+          })
+        )
       }),
     }
   }),
