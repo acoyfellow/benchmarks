@@ -29,6 +29,7 @@ interface RunSummary {
   total: number
   tool_correct: number
   args_correct: number
+  errors: number
   avg_latency_ms: number
 }
 
@@ -496,8 +497,28 @@ export default function BenchmarkRunner() {
             </div>
           )}
 
+          {/* Error banner when all results are errors */}
+          {runResults && runResults.summary.errors === runResults.summary.total && runResults.summary.total > 0 && (
+            <div
+              style={{
+                marginBottom: 24,
+                padding: "20px 24px",
+                background: C.redBg,
+                border: `1px solid rgba(239,68,68,0.2)`,
+                borderRadius: 12,
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 600, color: C.red, marginBottom: 6 }}>
+                ⚠ Model does not support tool calling
+              </div>
+              <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5 }}>
+                All {runResults.summary.total} prompts returned errors. This model likely doesn’t accept the <code style={{ fontFamily: C.mono, fontSize: 12, background: C.surface, padding: "2px 6px", borderRadius: 4 }}>tools</code> parameter.
+              </div>
+            </div>
+          )}
+
           {/* Summary cards */}
-          {runResults && runResults.summary.total > 0 && (
+          {runResults && runResults.summary.total > 0 && runResults.summary.errors < runResults.summary.total && (
             <div
               style={{
                 display: "grid",
@@ -557,7 +578,7 @@ export default function BenchmarkRunner() {
           )}
 
           {/* Results table */}
-          {runResults && runResults.results.length > 0 && (
+          {runResults && runResults.results.length > 0 && runResults.summary.errors < runResults.summary.total && (
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>

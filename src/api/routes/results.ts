@@ -17,6 +17,7 @@ app.get("/:id/results", async (c) => {
     const results = yield* db.getResults(id)
 
     const total = results.length
+    const errorCount = results.filter((r) => r.error !== null).length
     const toolCorrect = results.filter((r) => r.tool_correct === 1).length
     const argsCorrect = results.filter((r) => r.args_correct === 1).length
     const latencies = results
@@ -36,6 +37,7 @@ app.get("/:id/results", async (c) => {
         total,
         tool_correct: toolCorrect,
         args_correct: argsCorrect,
+        errors: errorCount,
         avg_latency_ms: avgLatency,
       },
       results: results.map((r) => ({

@@ -14,9 +14,8 @@ app.get("/", async (c) => {
     const filtered = models
       .filter((m) => m.task?.name === "Text Generation")
       .map((m) => ({
-        id: m.id,
+        id: m.name,
         name: m.name,
-        supports_tools: m.capabilities?.tools === true,
       }))
 
     return { models: filtered }
