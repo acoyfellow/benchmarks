@@ -25,9 +25,12 @@ app.use(
   cors({
     origin: (origin) => {
       if (!origin) {
-        // No Origin header (same-origin or curl): do not set CORS header
+        // No Origin header (same-origin or curl): return empty string so the
+        // middleware sets no Access-Control-Allow-Origin header, which is correct
+        // for same-origin requests.
         return ""
       }
+      // Return the origin to allow it, or empty string to deny cross-origin access.
       return allowedOrigins.includes(origin) ? origin : ""
     },
   })

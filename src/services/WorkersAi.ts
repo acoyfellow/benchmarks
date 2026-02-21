@@ -21,7 +21,7 @@ export class WorkersAi extends Effect.Service<WorkersAi>()("WorkersAi", {
         _messages: Array<{ role: string; content: string }>,
         _tools: ToolDef[]
       ) {
-        return {} as AiToolCallResult
+        return { tool_calls: [], response: "" } as AiToolCallResult
       }),
     }
   }),

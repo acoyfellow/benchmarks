@@ -8,17 +8,18 @@ import { orchestrateBenchmarkRun } from "../../runner/orchestrator.js"
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const app = new Hono<{ Bindings: { DB: D1Database; AI: any; LOADER?: any } }>()
 
-app.post("/", async (c) => {
-  const body = await c.req.json().catch(() => null) as {
-    benchmark_id?: unknown
-    model_id?: unknown
-  } | null
+function isRunBody(
+  value: unknown
+): value is { benchmark_id: string; model_id: string } {
+  if (value === null || typeof value !== "object") return false
+  const v = value as Record<string, unknown>
+  return typeof v.benchmark_id === "string" && typeof v.model_id === "string"
+}
 
-  if (
-    !body ||
-    typeof body.benchmark_id !== "string" ||
-    typeof body.model_id !== "string"
-  ) {
+app.post("/", async (c) => {
+  const body = await c.req.json().catch(() => null)
+
+  if (!isRunBody(body)) {
     return c.json({ error: "benchmark_id and model_id are required strings" }, 400)
   }
 

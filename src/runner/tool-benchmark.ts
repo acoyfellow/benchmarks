@@ -54,6 +54,12 @@ export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
             config.tools
           )
           .pipe(
+            // Capture latency immediately after the AI call succeeds
+            Effect.tap(() =>
+              Effect.sync(() => {
+                latencyMs = Date.now() - start
+              })
+            ),
             Effect.mapError(
               (e) => new RunFailed({ runId, reason: String(e) })
             ),
@@ -62,9 +68,6 @@ export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
               return Effect.succeed(null)
             })
           )
-
-        // Measure latency for successful calls only; errors set latency to null
-        latencyMs = aiResult !== null ? Date.now() - start : null
 
         if (aiResult !== null) {
           actualResponse = JSON.stringify(aiResult)
