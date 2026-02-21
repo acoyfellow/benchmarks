@@ -51,6 +51,7 @@ interface DbMethods {
     status: string,
     timestamps?: { started_at?: number; completed_at?: number }
   ) => Effect.Effect<void, DbError>
+  listRuns: (limit?: number) => Effect.Effect<Run[], DbError>
   getResults: (runId: string) => Effect.Effect<Result[], DbError>
   insertResult: (result: Result) => Effect.Effect<void, DbError>
 }
@@ -68,6 +69,7 @@ export class Db extends Effect.Service<Db>()("Db", {
     createRun: () => Effect.fail(notInitialized()),
     getRun: () => Effect.fail(notInitialized()),
     updateRunStatus: () => Effect.fail(notInitialized()),
+    listRuns: () => Effect.fail(notInitialized()),
     getResults: () => Effect.fail(notInitialized()),
     insertResult: () => Effect.fail(notInitialized()),
   }),
@@ -152,6 +154,19 @@ export class Db extends Effect.Service<Db>()("Db", {
             catch: (e) => new DbError({ message: String(e) }),
           }).pipe(Effect.asVoid)
         },
+
+        listRuns: (limit = 50) =>
+          Effect.tryPromise({
+            try: () =>
+              db
+                .prepare(
+                  "SELECT * FROM runs ORDER BY created_at DESC LIMIT ?"
+                )
+                .bind(limit)
+                .all<Run>()
+                .then((r) => r.results),
+            catch: (e) => new DbError({ message: String(e) }),
+          }),
 
         getResults: (runId: string) =>
           Effect.tryPromise({

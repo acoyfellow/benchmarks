@@ -6,7 +6,7 @@ import { WorkersAi } from "../../services/WorkersAi.js"
 import { orchestrateBenchmarkRun } from "../../runner/orchestrator.js"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const app = new Hono<{ Bindings: { DB: D1Database; AI: any; LOADER?: any } }>()
+const app = new Hono<{ Bindings: { DB: D1Database; AI: any } }>()
 
 function isRunBody(
   value: unknown
@@ -15,6 +15,24 @@ function isRunBody(
   const v = value as Record<string, unknown>
   return typeof v.benchmark_id === "string" && typeof v.model_id === "string"
 }
+
+app.get("/", async (c) => {
+  const limit = Number(c.req.query("limit") ?? "50")
+
+  const result = await Effect.gen(function* () {
+    const db = yield* Db
+    const runs = yield* db.listRuns(limit)
+    return c.json({ runs })
+  }).pipe(
+    Effect.provide(Db.layer(c.env.DB)),
+    Effect.catchAll((e) =>
+      Effect.succeed(c.json({ error: String(e), runs: [] }, 500 as const))
+    ),
+    Effect.runPromise
+  )
+
+  return result
+})
 
 app.post("/", async (c) => {
   const body = await c.req.json().catch(() => null)

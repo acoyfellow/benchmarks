@@ -10,8 +10,6 @@ export interface Env {
   DB: D1Database
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   AI: any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  LOADER?: any
   CF_ACCOUNT_ID: string
   CF_API_TOKEN: string
   CF_EMAIL: string
