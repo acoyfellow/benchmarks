@@ -9,41 +9,71 @@ import { orchestrateBenchmarkRun } from "../../runner/orchestrator.js"
 const app = new Hono<{ Bindings: { DB: D1Database; AI: any; LOADER?: any } }>()
 
 app.post("/", async (c) => {
-  const body = (await c.req.json()) as {
-    benchmark_id: string
-    model_id: string
+  const body = await c.req.json().catch(() => null) as {
+    benchmark_id?: unknown
+    model_id?: unknown
+  } | null
+
+  if (
+    !body ||
+    typeof body.benchmark_id !== "string" ||
+    typeof body.model_id !== "string"
+  ) {
+    return c.json({ error: "benchmark_id and model_id are required strings" }, 400)
   }
+
+  const { benchmark_id, model_id } = body
   const runId = crypto.randomUUID()
 
-  const result = await Effect.gen(function* () {
+  const response = await Effect.gen(function* () {
     const db = yield* Db
     yield* db.createRun({
       id: runId,
-      benchmark_id: body.benchmark_id,
-      model_id: body.model_id,
+      benchmark_id,
+      model_id,
     })
-    return { run_id: runId, status: "pending" }
+    return c.json({ run_id: runId, status: "pending" }, 201 as const)
   }).pipe(
     Effect.provide(Db.layer(c.env.DB)),
     Effect.catchAll((e) =>
-      Effect.succeed({ run_id: runId, status: "error", error: String(e) })
+      Effect.succeed(c.json({ error: String(e) }, 500 as const))
     ),
     Effect.runPromise
   )
 
-  // Kick off orchestration in background (non-blocking)
+  // Kick off orchestration — attached to the worker execution context so it
+  // survives the response returning to the client.
   const AppLayer = Layer.mergeAll(
     Db.layer(c.env.DB),
     WorkersAi.layer(c.env.AI)
   )
 
-  Effect.runFork(
-    orchestrateBenchmarkRun(runId, body.benchmark_id, body.model_id).pipe(
-      Effect.provide(AppLayer)
-    )
+  const orchestrationEffect = orchestrateBenchmarkRun(
+    runId,
+    benchmark_id,
+    model_id
+  ).pipe(
+    Effect.provide(AppLayer),
+    Effect.tapError((e) =>
+      Effect.sync(() => {
+        console.error("Failed to orchestrate benchmark run", {
+          runId,
+          benchmarkId: benchmark_id,
+          modelId: model_id,
+          error: String(e),
+        })
+      })
+    ),
+    Effect.ignore
   )
 
-  return c.json(result)
+  if (c.executionCtx) {
+    c.executionCtx.waitUntil(Effect.runPromise(orchestrationEffect))
+  } else {
+    Effect.runFork(orchestrationEffect)
+  }
+
+  return response
 })
 
 app.get("/:id", async (c) => {

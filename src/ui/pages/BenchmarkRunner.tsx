@@ -52,15 +52,24 @@ export default function BenchmarkRunner() {
 
   useEffect(() => {
     fetch("/api/models")
-      .then((r) => r.json())
-      .then((d: unknown) => setModels((d as { models?: Model[] }).models ?? []))
-      .catch(() => setFetchError("Failed to load models"))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        const d = (await r.json()) as { models?: Model[]; error?: string }
+        if (d.error) throw new Error(d.error)
+        setModels(d.models ?? [])
+      })
+      .catch((e) => setFetchError(`Failed to load models: ${String(e)}`))
     fetch("/api/benchmarks")
-      .then((r) => r.json())
-      .then((d: unknown) =>
-        setBenchmarks((d as { benchmarks?: Benchmark[] }).benchmarks ?? [])
-      )
-      .catch(() => setFetchError("Failed to load benchmarks"))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        const d = (await r.json()) as {
+          benchmarks?: Benchmark[]
+          error?: string
+        }
+        if (d.error) throw new Error(d.error)
+        setBenchmarks(d.benchmarks ?? [])
+      })
+      .catch((e) => setFetchError(`Failed to load benchmarks: ${String(e)}`))
   }, [])
 
   const stopPolling = useCallback(() => {
@@ -119,6 +128,7 @@ export default function BenchmarkRunner() {
     } catch (e) {
       setFetchError(`Failed to start run: ${String(e)}`)
       setLoading(false)
+      setStatus(null)
     }
   }, [selectedModel, selectedBenchmark, startPolling, stopPolling])
 

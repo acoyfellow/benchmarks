@@ -2,7 +2,7 @@
   // Cloudflare Workers AI Benchmark Platform
   "name": "benchmarks-api",
   "main": "src/api/index.ts",
-  "compatibility_date": "2025-08-01",
+  "compatibility_date": "2025-01-01",
   "compatibility_flags": ["experimental"],
   "worker_loaders": [
     { "binding": "LOADER" }

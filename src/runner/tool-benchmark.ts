@@ -18,10 +18,9 @@ function checkArgsMatch(
 ): boolean {
   for (const [key, val] of Object.entries(expected)) {
     if (!(key in actual)) return false
-    const actualVal = String(actual[key]).toLowerCase()
-    const expectedVal = String(val).toLowerCase()
-    if (!actualVal.includes(expectedVal) && !expectedVal.includes(actualVal))
-      return false
+    const actualVal = String(actual[key]).trim().toLowerCase()
+    const expectedVal = String(val).trim().toLowerCase()
+    if (actualVal !== expectedVal) return false
   }
   return true
 }
@@ -34,63 +33,77 @@ export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
   const db = yield* Db
   const ai = yield* WorkersAi
 
-  for (let i = 0; i < config.test_cases.length; i++) {
-    const testCase = config.test_cases[i]
-    const start = Date.now()
+  yield* Effect.forEach(
+    config.test_cases,
+    (testCase, index) =>
+      Effect.gen(function* () {
+        const start = Date.now()
 
-    const resultId = crypto.randomUUID()
-    let toolCalled: string | null = null
-    let toolCorrect = 0
-    let argsCorrect = 0
-    let latencyMs: number | null = null
-    let errorMsg: string | null = null
-    let actualResponse: string | null = null
+        const resultId = crypto.randomUUID()
+        let toolCalled: string | null = null
+        let toolCorrect = 0
+        let argsCorrect = 0
+        let latencyMs: number | null = null
+        let errorMsg: string | null = null
+        let actualResponse: string | null = null
 
-    const aiResult = yield* ai
-      .run(modelId, [{ role: "user", content: testCase.prompt }], config.tools)
-      .pipe(
-        Effect.mapError((e) => new RunFailed({ runId, reason: String(e) })),
-        Effect.catchAll((e) => {
-          errorMsg = e.reason
-          return Effect.succeed(null)
-        })
-      )
+        const aiResult = yield* ai
+          .run(
+            modelId,
+            [{ role: "user", content: testCase.prompt }],
+            config.tools
+          )
+          .pipe(
+            Effect.mapError(
+              (e) => new RunFailed({ runId, reason: String(e) })
+            ),
+            Effect.catchAll((e) => {
+              errorMsg = e.reason
+              return Effect.succeed(null)
+            })
+          )
 
-    latencyMs = Date.now() - start
+        // Measure latency for successful calls only; errors set latency to null
+        latencyMs = aiResult !== null ? Date.now() - start : null
 
-    if (aiResult !== null) {
-      actualResponse = JSON.stringify(aiResult)
-      if (aiResult.tool_calls && aiResult.tool_calls.length > 0) {
-        const call = aiResult.tool_calls[0]
-        toolCalled = call.name
-        toolCorrect = call.name === testCase.expected_tool ? 1 : 0
-        if (toolCorrect && testCase.expected_args) {
-          argsCorrect = checkArgsMatch(testCase.expected_args, call.arguments)
-            ? 1
-            : 0
+        if (aiResult !== null) {
+          actualResponse = JSON.stringify(aiResult)
+          if (aiResult.tool_calls && aiResult.tool_calls.length > 0) {
+            const call = aiResult.tool_calls[0]
+            toolCalled = call.name
+            toolCorrect = call.name === testCase.expected_tool ? 1 : 0
+            if (toolCorrect && testCase.expected_args) {
+              argsCorrect = checkArgsMatch(
+                testCase.expected_args,
+                call.arguments
+              )
+                ? 1
+                : 0
+            }
+          }
         }
-      }
-    }
 
-    const result: Result = {
-      id: resultId,
-      run_id: runId,
-      prompt_index: i,
-      prompt: testCase.prompt,
-      expected_tool: testCase.expected_tool,
-      expected_args: JSON.stringify(testCase.expected_args),
-      actual_response: actualResponse,
-      tool_called: toolCalled,
-      tool_correct: toolCorrect,
-      args_correct: argsCorrect,
-      latency_ms: latencyMs,
-      error: errorMsg,
-      created_at: Math.floor(Date.now() / 1000),
-    }
+        const result: Result = {
+          id: resultId,
+          run_id: runId,
+          prompt_index: index,
+          prompt: testCase.prompt,
+          expected_tool: testCase.expected_tool,
+          expected_args: JSON.stringify(testCase.expected_args),
+          actual_response: actualResponse,
+          tool_called: toolCalled,
+          tool_correct: toolCorrect,
+          args_correct: argsCorrect,
+          latency_ms: latencyMs,
+          error: errorMsg,
+          created_at: Math.floor(Date.now() / 1000),
+        }
 
-    yield* db.insertResult(result)
-    yield* Effect.logInfo(
-      `Result ${i + 1}/${config.test_cases.length}: tool_correct=${toolCorrect}, latency=${latencyMs}ms`
-    )
-  }
+        yield* db.insertResult(result)
+        yield* Effect.logInfo(
+          `Result ${index + 1}/${config.test_cases.length}: tool_correct=${toolCorrect}, latency=${latencyMs}ms`
+        )
+      }),
+    { concurrency: 3 }
+  )
 })

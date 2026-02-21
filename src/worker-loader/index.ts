@@ -16,20 +16,57 @@ export interface LoaderMessage {
   modelId: string
 }
 
+function isLoaderMessage(value: unknown): value is LoaderMessage {
+  if (value === null || typeof value !== "object") {
+    return false
+  }
+
+  const msg = value as { [key: string]: unknown }
+
+  return (
+    typeof msg.runId === "string" &&
+    typeof msg.benchmarkId === "string" &&
+    typeof msg.modelId === "string"
+  )
+}
+
 export default {
   async fetch(request: Request, env: LoaderEnv): Promise<Response> {
-    const msg = (await request.json()) as LoaderMessage
-    const { runId, benchmarkId, modelId } = msg
+    const body = await request.json().catch(() => null)
+
+    if (!isLoaderMessage(body)) {
+      return new Response(JSON.stringify({ error: "Invalid request body" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    const { runId, benchmarkId, modelId } = body
 
     const AppLayer = Layer.mergeAll(Db.layer(env.DB), WorkersAi.layer(env.AI))
 
-    await orchestrateBenchmarkRun(runId, benchmarkId, modelId).pipe(
-      Effect.provide(AppLayer),
-      Effect.runPromise
-    )
+    try {
+      await orchestrateBenchmarkRun(runId, benchmarkId, modelId).pipe(
+        Effect.provide(AppLayer),
+        Effect.runPromise
+      )
 
-    return new Response(JSON.stringify({ ok: true }), {
-      headers: { "Content-Type": "application/json" },
-    })
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    } catch (error) {
+      console.error("Failed to orchestrate benchmark run", error)
+
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Failed to orchestrate benchmark run",
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    }
   },
 }

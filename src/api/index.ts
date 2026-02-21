@@ -18,7 +18,20 @@ export interface Env {
 
 const app = new Hono<{ Bindings: Env }>()
 
-app.use("*", cors())
+const allowedOrigins = ["https://benchmarks.coey.dev"]
+
+app.use(
+  "/api/*",
+  cors({
+    origin: (origin) => {
+      if (!origin) {
+        // No Origin header (same-origin or curl): do not set CORS header
+        return ""
+      }
+      return allowedOrigins.includes(origin) ? origin : ""
+    },
+  })
+)
 
 app.route("/api/models", modelsRoute)
 app.route("/api/benchmarks", benchmarksRoute)

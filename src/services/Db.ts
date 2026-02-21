@@ -168,38 +168,30 @@ export class Db extends Effect.Service<Db>()("Db", {
             status: string,
             timestamps?: { started_at?: number; completed_at?: number }
           ) {
+            const setClauses: string[] = ["status = ?"]
+            const params: unknown[] = [status]
+
             if (timestamps?.started_at !== undefined) {
-              yield* Effect.tryPromise({
-                try: () =>
-                  db
-                    .prepare(
-                      "UPDATE runs SET status = ?, started_at = ? WHERE id = ?"
-                    )
-                    .bind(status, timestamps.started_at, id)
-                    .run(),
-                catch: (e) => new DbError({ message: String(e) }),
-              })
-            } else if (timestamps?.completed_at !== undefined) {
-              yield* Effect.tryPromise({
-                try: () =>
-                  db
-                    .prepare(
-                      "UPDATE runs SET status = ?, completed_at = ? WHERE id = ?"
-                    )
-                    .bind(status, timestamps.completed_at, id)
-                    .run(),
-                catch: (e) => new DbError({ message: String(e) }),
-              })
-            } else {
-              yield* Effect.tryPromise({
-                try: () =>
-                  db
-                    .prepare("UPDATE runs SET status = ? WHERE id = ?")
-                    .bind(status, id)
-                    .run(),
-                catch: (e) => new DbError({ message: String(e) }),
-              })
+              setClauses.push("started_at = ?")
+              params.push(timestamps.started_at)
             }
+
+            if (timestamps?.completed_at !== undefined) {
+              setClauses.push("completed_at = ?")
+              params.push(timestamps.completed_at)
+            }
+
+            const query = `UPDATE runs SET ${setClauses.join(", ")} WHERE id = ?`
+            params.push(id)
+
+            yield* Effect.tryPromise({
+              try: () =>
+                db
+                  .prepare(query)
+                  .bind(...params)
+                  .run(),
+              catch: (e) => new DbError({ message: String(e) }),
+            })
           }),
 
           getResults: Effect.fn("Db.getResults")(function* (runId: string) {

@@ -15,12 +15,13 @@ export interface AiToolCallResult {
 export class WorkersAi extends Effect.Service<WorkersAi>()("WorkersAi", {
   effect: Effect.gen(function* () {
     return {
+      // Stub: override with WorkersAi.layer(ai) at the Hono edge
       run: Effect.fn("WorkersAi.run")(function* (
         _modelId: string,
         _messages: Array<{ role: string; content: string }>,
         _tools: ToolDef[]
       ) {
-        return yield* Effect.succeed({} as AiToolCallResult)
+        return {} as AiToolCallResult
       }),
     }
   }),
@@ -36,10 +37,12 @@ export class WorkersAi extends Effect.Service<WorkersAi>()("WorkersAi", {
             messages: Array<{ role: string; content: string }>,
             tools: ToolDef[]
           ) {
-            return yield* Effect.tryPromise({
+            return yield* Effect.async<AiToolCallResult, Error>((resume) => {
               // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-              try: () => ai.run(modelId, { messages, tools }) as Promise<AiToolCallResult>,
-              catch: (e) => new Error(String(e)),
+              ;(ai.run(modelId, { messages, tools }) as Promise<AiToolCallResult>).then(
+                (result) => resume(Effect.succeed(result)),
+                (e) => resume(Effect.fail(new Error(String(e))))
+              )
             })
           }),
         } as unknown as WorkersAi
