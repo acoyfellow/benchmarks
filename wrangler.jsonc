@@ -17,9 +17,6 @@
   "ai": {
     "binding": "AI"
   },
-  "vars": {
-    "CF_ACCOUNT_ID": "YOUR_ACCOUNT_ID"
-  },
-  // Note: Set CF_API_TOKEN as a Wrangler secret: `wrangler secret put CF_API_TOKEN`
-  // For local dev, add to .dev.vars (already in .gitignore)
+  // Secrets CF_ACCOUNT_ID and CF_API_TOKEN are set via `wrangler secret put` in CI.
+  // For local dev, add them to .dev.vars (already in .gitignore)
 }
