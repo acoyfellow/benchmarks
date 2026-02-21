@@ -23,20 +23,24 @@ export const orchestrateBenchmarkRun = Effect.fn("orchestrateBenchmarkRun")(
 
     const config = JSON.parse(benchmark.config) as BenchmarkConfig
 
-    yield* runToolBenchmark(runId, modelId, config).pipe(
+    const succeeded = yield* runToolBenchmark(runId, modelId, config).pipe(
+      Effect.as(true),
       Effect.catchAll((e) =>
         Effect.gen(function* () {
           yield* db.updateRunStatus(runId, "failed", {
             completed_at: Math.floor(Date.now() / 1000),
           })
           yield* Effect.logError(`Run ${runId} failed: ${String(e)}`)
+          return false
         })
       )
     )
 
-    yield* db.updateRunStatus(runId, "complete", {
-      completed_at: Math.floor(Date.now() / 1000),
-    })
-    yield* Effect.logInfo(`Run ${runId} complete`)
+    if (succeeded) {
+      yield* db.updateRunStatus(runId, "complete", {
+        completed_at: Math.floor(Date.now() / 1000),
+      })
+      yield* Effect.logInfo(`Run ${runId} complete`)
+    }
   }
 )

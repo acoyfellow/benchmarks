@@ -47,17 +47,20 @@ export default function BenchmarkRunner() {
   const [runResults, setRunResults] = useState<RunResults | null>(null)
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     fetch("/api/models")
       .then((r) => r.json())
       .then((d: unknown) => setModels((d as { models?: Model[] }).models ?? []))
+      .catch(() => setFetchError("Failed to load models"))
     fetch("/api/benchmarks")
       .then((r) => r.json())
       .then((d: unknown) =>
         setBenchmarks((d as { benchmarks?: Benchmark[] }).benchmarks ?? [])
       )
+      .catch(() => setFetchError("Failed to load benchmarks"))
   }, [])
 
   const stopPolling = useCallback(() => {
@@ -71,11 +74,18 @@ export default function BenchmarkRunner() {
     (rid: string) => {
       stopPolling()
       pollRef.current = setInterval(async () => {
-        const r = await fetch(`/api/runs/${rid}/results`)
-        const data: RunResults = (await r.json()) as RunResults
-        setRunResults(data)
-        setStatus(data.status)
-        if (data.status !== "running" && data.status !== "pending") {
+        try {
+          const r = await fetch(`/api/runs/${rid}/results`)
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          const data: RunResults = (await r.json()) as RunResults
+          setRunResults(data)
+          setStatus(data.status)
+          if (data.status !== "running" && data.status !== "pending") {
+            stopPolling()
+            setLoading(false)
+          }
+        } catch (e) {
+          setFetchError(`Polling error: ${String(e)}`)
           stopPolling()
           setLoading(false)
         }
@@ -89,20 +99,27 @@ export default function BenchmarkRunner() {
     setLoading(true)
     setRunResults(null)
     setStatus("pending")
+    setFetchError(null)
     stopPolling()
 
-    const r = await fetch("/api/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        benchmark_id: selectedBenchmark,
-        model_id: selectedModel,
-      }),
-    })
-    const data = (await r.json()) as { run_id: string; status: string }
-    setRunId(data.run_id)
-    setStatus(data.status)
-    startPolling(data.run_id)
+    try {
+      const r = await fetch("/api/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          benchmark_id: selectedBenchmark,
+          model_id: selectedModel,
+        }),
+      })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = (await r.json()) as { run_id: string; status: string }
+      setRunId(data.run_id)
+      setStatus(data.status)
+      startPolling(data.run_id)
+    } catch (e) {
+      setFetchError(`Failed to start run: ${String(e)}`)
+      setLoading(false)
+    }
   }, [selectedModel, selectedBenchmark, startPolling, stopPolling])
 
   useEffect(() => () => stopPolling(), [stopPolling])
@@ -126,6 +143,12 @@ export default function BenchmarkRunner() {
       <h1 style={{ fontSize: "1.8rem", marginBottom: "1.5rem" }}>
         Workers AI Benchmark
       </h1>
+
+      {fetchError && (
+        <div style={{ marginBottom: "1rem", padding: "0.75rem 1rem", background: "#f8d7da", color: "#721c24", borderRadius: 6, fontSize: "0.9rem" }}>
+          {fetchError}
+        </div>
+      )}
 
       <div
         style={{

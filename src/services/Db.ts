@@ -140,7 +140,7 @@ export class Db extends Effect.Service<Db>()("Db", {
                     .prepare(
                       "UPDATE runs SET status = ?, started_at = ? WHERE id = ?"
                     )
-                    .bind(status, timestamps.started_at!, id)
+                    .bind(status, timestamps.started_at, id)
                     .run(),
                 catch: (e) => new DbError({ message: String(e) }),
               })
@@ -151,7 +151,7 @@ export class Db extends Effect.Service<Db>()("Db", {
                     .prepare(
                       "UPDATE runs SET status = ?, completed_at = ? WHERE id = ?"
                     )
-                    .bind(status, timestamps.completed_at!, id)
+                    .bind(status, timestamps.completed_at, id)
                     .run(),
                 catch: (e) => new DbError({ message: String(e) }),
               })
