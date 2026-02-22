@@ -79,6 +79,20 @@ interface BatchStatus {
 
 type SidebarView = "leaderboard" | "recent"
 
+interface ModelRunScore {
+  run_id: string
+  tool_pct: number
+  args_score: number
+  avg_latency: number
+  created_at: number
+}
+
+interface ModelStats {
+  model_id: string
+  runs: ModelRunScore[]
+  latencies: number[]
+}
+
 /* ── Colors / tokens ───────────────────────────────────── */
 
 const C = {
@@ -170,6 +184,16 @@ function formatTime(epoch: number) {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
 }
 
+function fmtMs(ms: number) {
+  return ms > 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`
+}
+
+function computePercentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0
+  const idx = Math.ceil((p / 100) * sorted.length) - 1
+  return sorted[Math.max(0, idx)]
+}
+
 function shortModel(id: string) {
   // @cf/meta/llama-3-8b-instruct -> llama-3-8b-instruct
   const parts = id.split("/")
@@ -193,6 +217,8 @@ export default function BenchmarkRunner() {
   const [sidebarView, setSidebarView] = useState<SidebarView>("leaderboard")
   const [batchId, setBatchId] = useState<string | null>(null)
   const [batchStatus, setBatchStatus] = useState<BatchStatus | null>(null)
+  const [modelStats, setModelStats] = useState<ModelStats | null>(null)
+  const [selectedLeaderboardEntry, setSelectedLeaderboardEntry] = useState<LeaderboardEntry | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load models + benchmarks + history
@@ -218,6 +244,23 @@ export default function BenchmarkRunner() {
     loadHistory()
     loadLeaderboard()
   }, [])
+
+  function loadModelStats(entry: LeaderboardEntry) {
+    setSelectedLeaderboardEntry(entry)
+    setModelStats(null)
+    setRunResults(null)
+    setRunId(null)
+    setStatus(null)
+    setBatchId(null)
+    setBatchStatus(null)
+    fetch(`/api/models/${encodeURIComponent(entry.model_id)}/stats`)
+      .then(async (r) => {
+        if (!r.ok) return
+        const d = (await r.json()) as ModelStats
+        setModelStats(d)
+      })
+      .catch(() => { /* ignore */ })
+  }
 
   function loadLeaderboard() {
     fetch("/api/leaderboard")
@@ -437,7 +480,7 @@ export default function BenchmarkRunner() {
                 {leaderboard.map((entry, rank) => (
                   <button
                     key={entry.model_id}
-                    onClick={() => setSelectedModel(entry.model_id)}
+                    onClick={() => loadModelStats(entry)}
                     style={{
                       display: "block",
                       width: "100%",
@@ -886,8 +929,119 @@ export default function BenchmarkRunner() {
             </div>
           )}
 
+          {/* Model detail view */}
+          {selectedLeaderboardEntry && !runResults && !status && (
+            <div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, fontFamily: C.mono }}>
+                {shortModel(selectedLeaderboardEntry.model_id)}
+              </h2>
+              <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 24 }}>
+                {selectedLeaderboardEntry.model_id}
+              </div>
+
+              {/* Stats grid */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                gap: 16,
+                marginBottom: 32,
+              }}>
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "20px 24px" }}>
+                  <Stat label="Tool Accuracy" value={`${selectedLeaderboardEntry.avg_tool_pct}%`} />
+                </div>
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "20px 24px" }}>
+                  <Stat label="Args Accuracy" value={`${selectedLeaderboardEntry.avg_args_score}%`} />
+                </div>
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "20px 24px" }}>
+                  <Stat label="Consistency" value={`${selectedLeaderboardEntry.consistent_runs}/${selectedLeaderboardEntry.total_runs}`}
+                    sub={`${selectedLeaderboardEntry.consistency}% perfect runs`} />
+                </div>
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "20px 24px" }}>
+                  <Stat label="Samples" value={selectedLeaderboardEntry.total_prompts}
+                    sub={`${selectedLeaderboardEntry.total_runs} runs × 20 prompts`} />
+                </div>
+              </div>
+
+              {/* Latency breakdown */}
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16 }}>Latency Distribution</div>
+                <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+                  {[
+                    ["Min", selectedLeaderboardEntry.min_latency_ms],
+                    ["p50", selectedLeaderboardEntry.p50_latency_ms],
+                    ["p95", selectedLeaderboardEntry.p95_latency_ms],
+                    ["Max", selectedLeaderboardEntry.max_latency_ms],
+                  ].map(([label, val]) => (
+                    <div key={label as string}>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label as string}</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, fontFamily: C.mono, color: (val as number) > 3000 ? C.red : (val as number) > 1500 ? C.yellow : C.green }}>
+                        {fmtMs(val as number)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Visual latency bar */}
+                {modelStats && modelStats.latencies.length > 0 && (() => {
+                  const lats = [...modelStats.latencies].sort((a, b) => a - b)
+                  const maxLat = lats[lats.length - 1]
+                  const p50 = computePercentile(lats, 50)
+                  const p95 = computePercentile(lats, 95)
+                  return (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ position: "relative", height: 24, background: C.border, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${(p50 / maxLat) * 100}%`, background: C.green, opacity: 0.3, borderRadius: 4 }} />
+                        <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${(p95 / maxLat) * 100}%`, background: C.yellow, opacity: 0.2, borderRadius: 4 }} />
+                        <div style={{ position: "absolute", left: `${(p50 / maxLat) * 100}%`, top: 0, height: "100%", width: 2, background: C.green }} />
+                        <div style={{ position: "absolute", left: `${(p95 / maxLat) * 100}%`, top: 0, height: "100%", width: 2, background: C.yellow }} />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: C.textDim }}>
+                        <span>0ms</span>
+                        <span>{fmtMs(maxLat)}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Per-run breakdown */}
+              {modelStats && modelStats.runs.length > 0 && (
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+                  <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, fontSize: 13, fontWeight: 600 }}>Run History</div>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {["#", "Tool %", "Args %", "Avg Latency", "When"].map((h) => (
+                          <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modelStats.runs.map((run, i) => (
+                        <tr key={run.run_id}
+                          style={{ borderBottom: i < modelStats.runs.length - 1 ? `1px solid ${C.border}` : "none" }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = C.surfaceHover}
+                          onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                        >
+                          <td style={{ padding: "10px 16px", color: C.textDim, fontFamily: C.mono, fontSize: 12 }}>{i + 1}</td>
+                          <td style={{ padding: "10px 16px", fontFamily: C.mono }}>
+                            <span style={{ color: run.tool_pct === 100 ? C.green : run.tool_pct >= 80 ? C.yellow : C.red, fontWeight: 700 }}>{run.tool_pct}%</span>
+                          </td>
+                          <td style={{ padding: "10px 16px", fontFamily: C.mono }}>
+                            <span style={{ color: run.args_score === 100 ? C.green : run.args_score >= 80 ? C.yellow : C.red, fontWeight: 700 }}>{run.args_score}%</span>
+                          </td>
+                          <td style={{ padding: "10px 16px", fontFamily: C.mono, color: C.textMuted }}>{fmtMs(run.avg_latency)}</td>
+                          <td style={{ padding: "10px 16px", color: C.textMuted, fontSize: 12 }}>{formatTime(run.created_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Empty state */}
-          {!runResults && !status && (
+          {!runResults && !status && !selectedLeaderboardEntry && (
             <div style={{ textAlign: "center", padding: "80px 20px" }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>⚡</div>
               <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Workers AI Benchmarks</div>

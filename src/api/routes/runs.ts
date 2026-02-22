@@ -3,7 +3,7 @@ import { Hono } from "hono"
 import { Effect, Layer } from "effect"
 import { Db } from "../../services/Db.js"
 import { WorkersAi } from "../../services/WorkersAi.js"
-import { orchestrateBenchmarkRun } from "../../runner/orchestrator.js"
+import { orchestrateBatch } from "../../runner/orchestrator.js"
 
 const DEFAULT_RUNS = 5
 
@@ -75,37 +75,30 @@ app.post("/", async (c) => {
     Effect.runPromise
   )
 
-  // Kick off all runs — stagger slightly to avoid thundering herd
+  // Kick off batch sequentially — one run at a time to avoid timeout
   const AppLayer = Layer.mergeAll(
     Db.layer(c.env.DB),
     WorkersAi.layer(c.env.CF_ACCOUNT_ID, { email: c.env.CF_EMAIL, apiKey: c.env.CF_API_KEY })
   )
 
-  for (const runId of runIds) {
-    const orchestrationEffect = orchestrateBenchmarkRun(
-      runId,
-      benchmark_id,
-      model_id
-    ).pipe(
-      Effect.provide(AppLayer),
-      Effect.tapError((e) =>
-        Effect.sync(() => {
-          console.error("Failed to orchestrate benchmark run", {
-            runId,
-            batchId,
-            modelId: model_id,
-            error: String(e),
-          })
-        })
-      ),
-      Effect.ignore
-    )
+  const batchEffect = orchestrateBatch(
+    runIds,
+    benchmark_id,
+    model_id
+  ).pipe(
+    Effect.provide(AppLayer),
+    Effect.tapError((e) =>
+      Effect.sync(() => {
+        console.error("Batch failed", { batchId, error: String(e) })
+      })
+    ),
+    Effect.ignore
+  )
 
-    if (c.executionCtx) {
-      c.executionCtx.waitUntil(Effect.runPromise(orchestrationEffect))
-    } else {
-      Effect.runFork(orchestrationEffect)
-    }
+  if (c.executionCtx) {
+    c.executionCtx.waitUntil(Effect.runPromise(batchEffect))
+  } else {
+    Effect.runFork(batchEffect)
   }
 
   return createResult

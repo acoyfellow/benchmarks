@@ -3,6 +3,22 @@ import { Db } from "../services/Db.js"
 import { RunFailed, BenchmarkNotFound } from "../errors/index.js"
 import { runToolBenchmark, type BenchmarkConfig } from "./tool-benchmark.js"
 
+/**
+ * Run a batch of runs sequentially. Each run completes before the next starts.
+ * This avoids overwhelming slow models with concurrent API calls.
+ */
+export const orchestrateBatch = Effect.fn("orchestrateBatch")(
+  function* (runIds: string[], benchmarkId: string, modelId: string) {
+    for (const runId of runIds) {
+      yield* orchestrateBenchmarkRun(runId, benchmarkId, modelId).pipe(
+        Effect.catchAll((e) =>
+          Effect.logError(`Run ${runId} in batch failed: ${String(e)}`)
+        )
+      )
+    }
+  }
+)
+
 export const orchestrateBenchmarkRun = Effect.fn("orchestrateBenchmarkRun")(
   function* (runId: string, benchmarkId: string, modelId: string) {
     const db = yield* Db
