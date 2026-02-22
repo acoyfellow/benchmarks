@@ -164,8 +164,9 @@ export class BenchmarkWorkflow extends WorkflowEntrypoint<Env, BenchmarkParams> 
               hasToolCall = true
             } else if (msg?.content) {
               // Some models return tool calls as JSON in content (flat format)
+              // Content can be a string (needs parsing) or already an object
               try {
-                const parsed = JSON.parse(msg.content) as Record<string, unknown>
+                const parsed = (typeof msg.content === "string" ? JSON.parse(msg.content) : msg.content) as Record<string, unknown>
                 if (typeof parsed.name === "string" && parsed.arguments && typeof parsed.arguments === "object") {
                   callName = parsed.name
                   callArgs = parsed.arguments as Record<string, unknown>
