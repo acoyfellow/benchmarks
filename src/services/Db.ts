@@ -32,6 +32,7 @@ export interface Result {
   tool_called: string | null
   tool_correct: number
   args_correct: number
+  args_score: number
   latency_ms: number | null
   error: string | null
   created_at: number
@@ -42,6 +43,7 @@ export interface LeaderboardEntry {
   runs: number
   avg_tool_pct: number
   avg_args_pct: number
+  avg_args_score: number
   avg_latency_ms: number
   best_tool_pct: number
   best_run_id: string
@@ -190,6 +192,7 @@ export class Db extends Effect.Service<Db>()("Db", {
                     COUNT(DISTINCT r.id) as runs,
                     ROUND(AVG(sub.tool_pct)) as avg_tool_pct,
                     ROUND(AVG(sub.args_pct)) as avg_args_pct,
+                    ROUND(AVG(sub.avg_args_score) * 100) as avg_args_score,
                     ROUND(AVG(sub.avg_lat)) as avg_latency_ms,
                     MAX(sub.tool_pct) as best_tool_pct,
                     sub.best_run_id
@@ -199,6 +202,7 @@ export class Db extends Effect.Service<Db>()("Db", {
                       run_id,
                       ROUND(100.0 * SUM(tool_correct) / COUNT(*)) as tool_pct,
                       ROUND(100.0 * SUM(args_correct) / COUNT(*)) as args_pct,
+                      AVG(args_score) as avg_args_score,
                       AVG(latency_ms) as avg_lat,
                       run_id as best_run_id
                     FROM results
@@ -233,8 +237,8 @@ export class Db extends Effect.Service<Db>()("Db", {
             try: () =>
               db
                 .prepare(
-                  `INSERT INTO results (id, run_id, prompt_index, prompt, expected_tool, expected_args, actual_response, tool_called, tool_correct, args_correct, latency_ms, error)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                  `INSERT INTO results (id, run_id, prompt_index, prompt, expected_tool, expected_args, actual_response, tool_called, tool_correct, args_correct, args_score, latency_ms, error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
                 )
                 .bind(
                   result.id,
@@ -247,6 +251,7 @@ export class Db extends Effect.Service<Db>()("Db", {
                   result.tool_called,
                   result.tool_correct,
                   result.args_correct,
+                  result.args_score,
                   result.latency_ms,
                   result.error
                 )

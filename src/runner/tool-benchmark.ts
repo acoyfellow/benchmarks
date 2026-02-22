@@ -3,26 +3,89 @@ import { Db, type Result } from "../services/Db.js"
 import { WorkersAi, type ToolDef } from "../services/WorkersAi.js"
 import { RunFailed } from "../errors/index.js"
 
-export interface BenchmarkConfig {
-  tools: ToolDef[]
-  test_cases: Array<{
-    prompt: string
-    expected_tool: string
-    expected_args: Record<string, unknown>
-  }>
+export interface ArgExpectation {
+  value: string
+  match: "exact" | "contains" | "keywords"
 }
 
-function checkArgsMatch(
-  expected: Record<string, unknown>,
-  actual: Record<string, unknown>
+export interface TestCase {
+  prompt: string
+  expected_tool: string
+  expected_args: Record<string, ArgExpectation>
+}
+
+export interface BenchmarkConfig {
+  tools: ToolDef[]
+  test_cases: TestCase[]
+}
+
+interface ArgMatchDetail {
+  key: string
+  expected: string
+  actual: string | undefined
+  strategy: ArgExpectation["match"]
+  matched: boolean
+}
+
+function matchArg(
+  strategy: ArgExpectation["match"],
+  expected: string,
+  actual: string
 ): boolean {
-  for (const [key, val] of Object.entries(expected)) {
-    if (!(key in actual)) return false
-    const actualVal = String(actual[key]).trim().toLowerCase()
-    const expectedVal = String(val).trim().toLowerCase()
-    if (actualVal !== expectedVal) return false
+  const e = expected.trim().toLowerCase()
+  const a = actual.trim().toLowerCase()
+
+  switch (strategy) {
+    case "exact":
+      return a === e
+
+    case "contains":
+      return a.includes(e)
+
+    case "keywords": {
+      const keywords = e.split(/\s+/).filter(Boolean)
+      return keywords.every((kw) => a.includes(kw))
+    }
   }
-  return true
+}
+
+function scoreArgs(
+  expected: Record<string, ArgExpectation>,
+  actual: Record<string, unknown>
+): { allMatch: boolean; score: number; details: ArgMatchDetail[] } {
+  const entries = Object.entries(expected)
+  if (entries.length === 0) {
+    return { allMatch: true, score: 1.0, details: [] }
+  }
+
+  const details: ArgMatchDetail[] = []
+  let matchedCount = 0
+
+  for (const [key, expectation] of entries) {
+    const actualRaw = actual[key]
+    const actualStr = actualRaw !== undefined && actualRaw !== null
+      ? String(actualRaw)
+      : undefined
+
+    const matched =
+      actualStr !== undefined &&
+      matchArg(expectation.match, expectation.value, actualStr)
+
+    if (matched) matchedCount++
+
+    details.push({
+      key,
+      expected: expectation.value,
+      actual: actualStr,
+      strategy: expectation.match,
+      matched,
+    })
+  }
+
+  const score = matchedCount / entries.length
+  const allMatch = matchedCount === entries.length
+
+  return { allMatch, score, details }
 }
 
 export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
@@ -43,6 +106,7 @@ export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
         let toolCalled: string | null = null
         let toolCorrect = 0
         let argsCorrect = 0
+        let argsScore = 0
         let latencyMs: number | null = null
         let errorMsg: string | null = null
         let actualResponse: string | null = null
@@ -70,20 +134,29 @@ export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
           )
 
         if (aiResult !== null) {
-          actualResponse = JSON.stringify(aiResult)
+          let argMatchDetails: ArgMatchDetail[] | undefined
+
           if (aiResult.tool_calls && aiResult.tool_calls.length > 0) {
             const call = aiResult.tool_calls[0]
             toolCalled = call.name
             toolCorrect = call.name === testCase.expected_tool ? 1 : 0
+
             if (toolCorrect && testCase.expected_args) {
-              argsCorrect = checkArgsMatch(
+              const { allMatch, score, details } = scoreArgs(
                 testCase.expected_args,
                 call.arguments
               )
-                ? 1
-                : 0
+              argsCorrect = allMatch ? 1 : 0
+              argsScore = Math.round(score * 1000) / 1000
+              argMatchDetails = details
             }
           }
+
+          actualResponse = JSON.stringify({
+            ...aiResult,
+            args_score: argsScore,
+            arg_match_details: argMatchDetails ?? null,
+          })
         }
 
         const result: Result = {
@@ -97,6 +170,7 @@ export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
           tool_called: toolCalled,
           tool_correct: toolCorrect,
           args_correct: argsCorrect,
+          args_score: argsScore,
           latency_ms: latencyMs,
           error: errorMsg,
           created_at: Math.floor(Date.now() / 1000),
@@ -104,7 +178,7 @@ export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
 
         yield* db.insertResult(result)
         yield* Effect.logInfo(
-          `Result ${index + 1}/${config.test_cases.length}: tool_correct=${toolCorrect}, latency=${latencyMs}ms`
+          `Result ${index + 1}/${config.test_cases.length}: tool_correct=${toolCorrect}, args_correct=${argsCorrect}, args_score=${argsScore}, latency=${latencyMs}ms`
         )
       }),
     { concurrency: 3 }

@@ -20,6 +20,9 @@ app.get("/:id/results", async (c) => {
     const errorCount = results.filter((r) => r.error !== null).length
     const toolCorrect = results.filter((r) => r.tool_correct === 1).length
     const argsCorrect = results.filter((r) => r.args_correct === 1).length
+    const avgArgsScore = results.length > 0
+      ? Math.round((results.reduce((sum, r) => sum + (r.args_score ?? 0), 0) / results.length) * 100)
+      : 0
     const latencies = results
       .filter((r) => r.latency_ms !== null)
       .map((r) => r.latency_ms!)
@@ -37,6 +40,7 @@ app.get("/:id/results", async (c) => {
         total,
         tool_correct: toolCorrect,
         args_correct: argsCorrect,
+        avg_args_score: avgArgsScore,
         errors: errorCount,
         avg_latency_ms: avgLatency,
       },
@@ -47,6 +51,7 @@ app.get("/:id/results", async (c) => {
         tool_called: r.tool_called,
         tool_correct: r.tool_correct === 1,
         args_correct: r.args_correct === 1,
+        args_score: r.args_score ?? 0,
         latency_ms: r.latency_ms,
         error: r.error,
       })),

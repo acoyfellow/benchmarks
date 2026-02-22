@@ -21,6 +21,7 @@ interface ResultRow {
   tool_called: string | null
   tool_correct: boolean
   args_correct: boolean
+  args_score: number
   latency_ms: number | null
   error: string | null
 }
@@ -29,6 +30,7 @@ interface RunSummary {
   total: number
   tool_correct: number
   args_correct: number
+  avg_args_score: number
   errors: number
   avg_latency_ms: number
 }
@@ -55,6 +57,7 @@ interface LeaderboardEntry {
   runs: number
   avg_tool_pct: number
   avg_args_pct: number
+  avg_args_score: number
   avg_latency_ms: number
   best_tool_pct: number
   best_run_id: string
@@ -312,12 +315,7 @@ export default function BenchmarkRunner() {
         )
       : 0
 
-  const argsAccuracy =
-    runResults && runResults.summary.total > 0
-      ? Math.round(
-          (runResults.summary.args_correct / runResults.summary.total) * 100
-        )
-      : 0
+  const argsAccuracy = runResults ? runResults.summary.avg_args_score : 0
 
   return (
     <>
@@ -430,8 +428,8 @@ export default function BenchmarkRunner() {
                         <span style={{ color: C.textDim, marginLeft: 2 }}>tool</span>
                       </div>
                       <div style={{ fontSize: 11 }}>
-                        <span style={{ color: entry.avg_args_pct >= 80 ? C.green : entry.avg_args_pct >= 50 ? C.yellow : C.red, fontWeight: 700, fontFamily: C.mono }}>
-                          {entry.avg_args_pct}%
+                        <span style={{ color: entry.avg_args_score >= 80 ? C.green : entry.avg_args_score >= 50 ? C.yellow : C.red, fontWeight: 700, fontFamily: C.mono }}>
+                          {entry.avg_args_score}%
                         </span>
                         <span style={{ color: C.textDim, marginLeft: 2 }}>args</span>
                       </div>
@@ -678,9 +676,9 @@ export default function BenchmarkRunner() {
 
               <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "20px 24px" }}>
                 <Stat
-                  label="Correct / Total"
+                  label="Tool Correct"
                   value={`${runResults.summary.tool_correct}/${runResults.summary.total}`}
-                  sub={`args: ${runResults.summary.args_correct}/${runResults.summary.total}`}
+                  sub={`args perfect: ${runResults.summary.args_correct}/${runResults.summary.total}`}
                 />
               </div>
 
@@ -766,7 +764,24 @@ export default function BenchmarkRunner() {
                         <Badge pass={row.tool_correct} />
                       </td>
                       <td style={{ padding: "12px 16px", textAlign: "center" }}>
-                        <Badge pass={row.args_correct} />
+                        {row.args_correct ? (
+                          <Badge pass={true} />
+                        ) : row.tool_correct ? (
+                          <span style={{
+                            display: "inline-block",
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            fontFamily: C.mono,
+                            background: row.args_score >= 0.5 ? C.yellowBg : C.redBg,
+                            color: row.args_score >= 0.5 ? C.yellow : C.red,
+                          }}>
+                            {Math.round(row.args_score * 100)}%
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11, color: C.textDim }}>—</span>
+                        )}
                       </td>
                       <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: C.mono, fontSize: 12, color: C.textMuted }}>
                         {row.latency_ms !== null ? `${row.latency_ms}ms` : "—"}

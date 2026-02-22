@@ -1,3 +1,7 @@
+DROP TABLE IF EXISTS results;
+DROP TABLE IF EXISTS runs;
+DROP TABLE IF EXISTS benchmark_definitions;
+
 CREATE TABLE IF NOT EXISTS benchmark_definitions (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -28,6 +32,7 @@ CREATE TABLE IF NOT EXISTS results (
   tool_called TEXT,
   tool_correct INTEGER NOT NULL DEFAULT 0,
   args_correct INTEGER NOT NULL DEFAULT 0,
+  args_score REAL NOT NULL DEFAULT 0,
   latency_ms INTEGER,
   error TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
