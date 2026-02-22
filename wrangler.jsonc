@@ -20,6 +20,13 @@
   },
   "routes": [
     { "pattern": "benchmarks.coey.dev", "custom_domain": true }
+  ],
+  "workflows": [
+    {
+      "name": "benchmark-runner",
+      "binding": "BENCHMARK_WORKFLOW",
+      "class_name": "BenchmarkWorkflow"
+    }
   ]
   // Secrets CF_ACCOUNT_ID, CF_API_TOKEN, CF_EMAIL, CF_API_KEY are set via `wrangler secret put` in CI.
   // For local dev, add them to .dev.vars (already in .gitignore)

@@ -181,6 +181,6 @@ export const runToolBenchmark = Effect.fn("runToolBenchmark")(function* (
           `Result ${index + 1}/${config.test_cases.length}: tool_correct=${toolCorrect}, args_correct=${argsCorrect}, args_score=${argsScore}, latency=${latencyMs}ms`
         )
       }),
-    { concurrency: 1 }
+    { concurrency: 5 }
   )
 })

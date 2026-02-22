@@ -16,6 +16,7 @@ export interface Env {
   CF_API_TOKEN: string
   CF_EMAIL: string
   CF_API_KEY: string
+  BENCHMARK_WORKFLOW: Workflow
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -78,3 +79,6 @@ app.route("/api/runs", resultsRoute)
 // Static assets and SPA fallback handled by the assets binding in wrangler.jsonc
 
 export default app
+
+// Re-export workflow class so wrangler can find it
+export { BenchmarkWorkflow } from "../runner/workflow.js"
