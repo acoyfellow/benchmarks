@@ -148,22 +148,44 @@ export class BenchmarkWorkflow extends WorkflowEntrypoint<Env, BenchmarkParams> 
             }
 
             const msg = data.choices?.[0]?.message
+
+            // Extract tool call — check OpenAI format first, then flat format in content
+            let callName = ""
+            let callArgs: Record<string, unknown> = {}
+            let hasToolCall = false
+
             if (msg?.tool_calls && msg.tool_calls.length > 0) {
+              // OpenAI format: tool_calls[].function.{name, arguments}
               const call = msg.tool_calls[0]
-              const name = call.function?.name ?? ""
-              const args = typeof call.function?.arguments === "string"
+              callName = call.function?.name ?? ""
+              callArgs = typeof call.function?.arguments === "string"
                 ? JSON.parse(call.function.arguments) as Record<string, unknown>
                 : {}
+              hasToolCall = true
+            } else if (msg?.content) {
+              // Some models return tool calls as JSON in content (flat format)
+              try {
+                const parsed = JSON.parse(msg.content) as Record<string, unknown>
+                if (typeof parsed.name === "string" && parsed.arguments && typeof parsed.arguments === "object") {
+                  callName = parsed.name
+                  callArgs = parsed.arguments as Record<string, unknown>
+                  hasToolCall = true
+                }
+              } catch {
+                // Not JSON content, that's fine
+              }
+            }
 
-              toolCalled = name
-              toolCorrect = name === tc.expected_tool ? 1 : 0
+            if (hasToolCall) {
+              toolCalled = callName
+              toolCorrect = callName === tc.expected_tool ? 1 : 0
               if (toolCorrect && tc.expected_args) {
-                const { allMatch, score, details } = scoreArgs(tc.expected_args, args)
+                const { allMatch, score, details } = scoreArgs(tc.expected_args, callArgs)
                 argsCorrect = allMatch ? 1 : 0
                 argsScore = Math.round(score * 1000) / 1000
-                actualResponse = JSON.stringify({ tool_calls: [{ name, arguments: args }], args_score: argsScore, arg_match_details: details })
+                actualResponse = JSON.stringify({ tool_calls: [{ name: callName, arguments: callArgs }], args_score: argsScore, arg_match_details: details })
               } else {
-                actualResponse = JSON.stringify({ tool_calls: [{ name, arguments: args }], args_score: 0, arg_match_details: null })
+                actualResponse = JSON.stringify({ tool_calls: [{ name: callName, arguments: callArgs }], args_score: 0, arg_match_details: null })
               }
             } else {
               actualResponse = JSON.stringify({ response: msg?.content ?? JSON.stringify(data), args_score: 0, arg_match_details: null })
