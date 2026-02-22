@@ -5,8 +5,7 @@ import { Db } from "../../services/Db.js"
 import { WorkersAi } from "../../services/WorkersAi.js"
 import { orchestrateBenchmarkRun } from "../../runner/orchestrator.js"
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const app = new Hono<{ Bindings: { DB: D1Database; AI: any } }>()
+const app = new Hono<{ Bindings: { DB: D1Database; CF_ACCOUNT_ID: string; CF_EMAIL: string; CF_API_KEY: string } }>()
 
 function isRunBody(
   value: unknown
@@ -64,7 +63,7 @@ app.post("/", async (c) => {
   // survives the response returning to the client.
   const AppLayer = Layer.mergeAll(
     Db.layer(c.env.DB),
-    WorkersAi.layer(c.env.AI)
+    WorkersAi.layer(c.env.CF_ACCOUNT_ID, { email: c.env.CF_EMAIL, apiKey: c.env.CF_API_KEY })
   )
 
   const orchestrationEffect = orchestrateBenchmarkRun(

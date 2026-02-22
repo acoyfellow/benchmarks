@@ -14,7 +14,8 @@ export interface AiToolCallResult {
 
 /**
  * Wrap flat tool defs into OpenAI-style format.
- * Llama models accept both formats; GLM/OpenAI-compat models require this.
+ * Required: /ai/v1/chat/completions does NOT normalize tool input —
+ * GLM (and other OpenAI-compat models) reject flat format with 8001.
  */
 function wrapTools(tools: ToolDef[]): unknown[] {
   return tools.map((t) => ({
@@ -23,37 +24,34 @@ function wrapTools(tools: ToolDef[]): unknown[] {
   }))
 }
 
-/**
- * Normalize AI response into our flat format.
- * Handles both:
- *   - Llama-style:  { tool_calls: [{ name, arguments: {...} }] }
- *   - OpenAI-style: { choices: [{ message: { tool_calls: [{ function: { name, arguments: "json" } }] } }] }
- */
-function normalizeResponse(raw: Record<string, unknown>): AiToolCallResult {
-  // OpenAI-style: choices[0].message.tool_calls
-  const choices = raw.choices as Array<{ message?: { tool_calls?: Array<{ function?: { name: string; arguments: string } }> } }> | undefined
-  if (choices && choices.length > 0) {
-    const msg = choices[0]?.message
-    if (msg?.tool_calls && msg.tool_calls.length > 0) {
-      return {
-        tool_calls: msg.tool_calls.map((tc) => ({
-          name: tc.function?.name ?? "",
-          arguments: typeof tc.function?.arguments === "string"
-            ? JSON.parse(tc.function.arguments) as Record<string, unknown>
-            : (tc.function?.arguments as unknown as Record<string, unknown>) ?? {},
-        })),
-      }
+/** Response shape from /ai/v1/chat/completions (consistent across all models) */
+interface ChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      tool_calls?: Array<{
+        function?: { name: string; arguments: string }
+      }>
+      content?: string | null
     }
-    return { response: JSON.stringify(raw) }
-  }
+  }>
+}
 
-  // Llama-style: flat tool_calls
-  const calls = raw.tool_calls as Array<{ name: string; arguments: Record<string, unknown> }> | undefined
-  if (calls && calls.length > 0) {
-    return { tool_calls: calls }
+/**
+ * Parse the normalized /ai/v1/chat/completions response.
+ */
+function parseResponse(raw: ChatCompletionResponse): AiToolCallResult {
+  const msg = raw.choices?.[0]?.message
+  if (msg?.tool_calls && msg.tool_calls.length > 0) {
+    return {
+      tool_calls: msg.tool_calls.map((tc) => ({
+        name: tc.function?.name ?? "",
+        arguments: typeof tc.function?.arguments === "string"
+          ? JSON.parse(tc.function.arguments) as Record<string, unknown>
+          : {},
+      })),
+    }
   }
-
-  return { response: (raw.response as string | undefined) ?? JSON.stringify(raw) }
+  return { response: msg?.content ?? JSON.stringify(raw) }
 }
 
 export class WorkersAi extends Effect.Service<WorkersAi>()("WorkersAi", {
@@ -69,27 +67,45 @@ export class WorkersAi extends Effect.Service<WorkersAi>()("WorkersAi", {
     }
   }),
 }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  static layer = (ai: any) =>
-    Layer.effect(
+  /**
+   * Uses /ai/v1/chat/completions for normalized OpenAI-compatible responses.
+   * Input tools are wrapped in OpenAI format (not normalized by the API).
+   * Output is always choices[].message.tool_calls format (normalized by the API).
+   */
+  static layer = (accountId: string, opts: { email: string; apiKey: string }) =>
+    Layer.succeed(
       WorkersAi,
-      Effect.gen(function* () {
-        return {
-          run: Effect.fn("WorkersAi.run")(function* (
-            modelId: string,
-            messages: Array<{ role: string; content: string }>,
-            tools: ToolDef[]
-          ) {
-            const wrappedTools = wrapTools(tools)
-            return yield* Effect.async<AiToolCallResult, Error>((resume) => {
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-              ;(ai.run(modelId, { messages, tools: wrappedTools }) as Promise<Record<string, unknown>>).then(
-                (raw) => resume(Effect.succeed(normalizeResponse(raw))),
-                (e) => resume(Effect.fail(new Error(String(e))))
+      {
+        run: (modelId: string, messages: Array<{ role: string; content: string }>, tools: ToolDef[]) =>
+          Effect.tryPromise({
+            try: async () => {
+              const resp = await fetch(
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+                {
+                  method: "POST",
+                  headers: {
+                    "X-Auth-Email": opts.email,
+                    "X-Auth-Key": opts.apiKey,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    model: modelId,
+                    messages,
+                    tools: wrapTools(tools),
+                  }),
+                }
               )
-            })
+              const json = (await resp.json()) as { result?: ChatCompletionResponse; success?: boolean; errors?: Array<{ message: string }> } & ChatCompletionResponse
+
+              // REST API wraps in {result, success, errors} envelope
+              const data = json.result ?? json
+              if (json.success === false && json.errors?.length) {
+                throw new Error(json.errors[0].message)
+              }
+              return parseResponse(data as ChatCompletionResponse)
+            },
+            catch: (e) => new Error(String(e)),
           }),
-        } as unknown as WorkersAi
-      })
+      } as unknown as WorkersAi
     )
 }
