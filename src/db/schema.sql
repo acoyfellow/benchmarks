@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS benchmark_definitions (
 
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL,
   benchmark_id TEXT NOT NULL REFERENCES benchmark_definitions(id),
   model_id TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -20,6 +21,9 @@ CREATE TABLE IF NOT EXISTS runs (
   completed_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+CREATE INDEX IF NOT EXISTS idx_runs_batch ON runs(batch_id);
+CREATE INDEX IF NOT EXISTS idx_runs_model ON runs(model_id);
 
 CREATE TABLE IF NOT EXISTS results (
   id TEXT PRIMARY KEY,
@@ -37,3 +41,5 @@ CREATE TABLE IF NOT EXISTS results (
   error TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+CREATE INDEX IF NOT EXISTS idx_results_run ON results(run_id);

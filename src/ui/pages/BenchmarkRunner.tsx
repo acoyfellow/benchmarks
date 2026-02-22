@@ -54,13 +54,27 @@ interface HistoryRun {
 
 interface LeaderboardEntry {
   model_id: string
-  runs: number
+  total_runs: number
+  total_prompts: number
   avg_tool_pct: number
-  avg_args_pct: number
   avg_args_score: number
-  avg_latency_ms: number
-  best_tool_pct: number
-  best_run_id: string
+  consistency: number
+  consistent_runs: number
+  p50_latency_ms: number
+  p95_latency_ms: number
+  min_latency_ms: number
+  max_latency_ms: number
+}
+
+interface BatchStatus {
+  batch_id: string
+  model_id: string
+  benchmark_id: string
+  total: number
+  complete: number
+  failed: number
+  running: number
+  pending: number
 }
 
 type SidebarView = "leaderboard" | "recent"
@@ -177,6 +191,8 @@ export default function BenchmarkRunner() {
   const [history, setHistory] = useState<HistoryRun[]>([])
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [sidebarView, setSidebarView] = useState<SidebarView>("leaderboard")
+  const [batchId, setBatchId] = useState<string | null>(null)
+  const [batchStatus, setBatchStatus] = useState<BatchStatus | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load models + benchmarks + history
@@ -256,11 +272,41 @@ export default function BenchmarkRunner() {
     [stopPolling]
   )
 
+  const startBatchPolling = useCallback(
+    (bid: string) => {
+      stopPolling()
+      pollRef.current = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/runs/batch/${bid}`)
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          const data = (await r.json()) as BatchStatus
+          setBatchStatus(data)
+          setStatus(`${data.complete}/${data.total} runs complete`)
+          if (data.pending === 0 && data.running === 0) {
+            stopPolling()
+            setLoading(false)
+            setStatus(`Batch done: ${data.complete}/${data.total} complete${data.failed > 0 ? `, ${data.failed} failed` : ""}`)
+            loadHistory()
+            loadLeaderboard()
+          }
+        } catch (e) {
+          setFetchError(`Polling error: ${String(e)}`)
+          stopPolling()
+          setLoading(false)
+        }
+      }, 2000)
+    },
+    [stopPolling]
+  )
+
   const handleRun = useCallback(async () => {
     if (!selectedModel || !selectedBenchmark) return
     setLoading(true)
     setRunResults(null)
-    setStatus("pending")
+    setRunId(null)
+    setBatchId(null)
+    setBatchStatus(null)
+    setStatus("Starting 5 runs…")
     setFetchError(null)
     stopPolling()
 
@@ -271,19 +317,20 @@ export default function BenchmarkRunner() {
         body: JSON.stringify({
           benchmark_id: selectedBenchmark,
           model_id: selectedModel,
+          runs: 5,
         }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const data = (await r.json()) as { run_id: string; status: string }
-      setRunId(data.run_id)
-      setStatus(data.status)
-      startPolling(data.run_id)
+      const data = (await r.json()) as { batch_id: string; run_ids: string[]; total: number }
+      setBatchId(data.batch_id)
+      setStatus(`0/${data.total} runs complete`)
+      startBatchPolling(data.batch_id)
     } catch (e) {
-      setFetchError(`Failed to start run: ${String(e)}`)
+      setFetchError(`Failed to start batch: ${String(e)}`)
       setLoading(false)
       setStatus(null)
     }
-  }, [selectedModel, selectedBenchmark, startPolling, stopPolling])
+  }, [selectedModel, selectedBenchmark, startBatchPolling, stopPolling])
 
   const loadRun = useCallback(async (rid: string) => {
     setRunId(rid)
@@ -390,7 +437,7 @@ export default function BenchmarkRunner() {
                 {leaderboard.map((entry, rank) => (
                   <button
                     key={entry.model_id}
-                    onClick={() => loadRun(entry.best_run_id)}
+                    onClick={() => setSelectedModel(entry.model_id)}
                     style={{
                       display: "block",
                       width: "100%",
@@ -407,7 +454,7 @@ export default function BenchmarkRunner() {
                     onMouseEnter={(e) => e.currentTarget.style.background = C.surfaceHover}
                     onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                       <span style={{
                         display: "inline-flex", alignItems: "center", justifyContent: "center",
                         width: 22, height: 22, borderRadius: 4, fontSize: rank < 3 ? 14 : 11, fontWeight: 700,
@@ -420,7 +467,7 @@ export default function BenchmarkRunner() {
                         {shortModel(entry.model_id)}
                       </span>
                     </div>
-                    <div style={{ display: "flex", gap: 12, paddingLeft: 30 }}>
+                    <div style={{ display: "flex", gap: 8, paddingLeft: 30, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 11 }}>
                         <span style={{ color: entry.avg_tool_pct >= 80 ? C.green : entry.avg_tool_pct >= 50 ? C.yellow : C.red, fontWeight: 700, fontFamily: C.mono }}>
                           {entry.avg_tool_pct}%
@@ -433,14 +480,21 @@ export default function BenchmarkRunner() {
                         </span>
                         <span style={{ color: C.textDim, marginLeft: 2 }}>args</span>
                       </div>
-                      <div style={{ fontSize: 11 }}>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, paddingLeft: 30, marginTop: 2, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 10 }}>
                         <span style={{ color: C.textMuted, fontFamily: C.mono }}>
-                          {entry.avg_latency_ms > 1000 ? `${(entry.avg_latency_ms / 1000).toFixed(1)}s` : `${entry.avg_latency_ms}ms`}
+                          p50: {entry.p50_latency_ms > 1000 ? `${(entry.p50_latency_ms / 1000).toFixed(1)}s` : `${entry.p50_latency_ms}ms`}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10 }}>
+                        <span style={{ color: entry.p95_latency_ms > 2000 ? C.yellow : C.textMuted, fontFamily: C.mono }}>
+                          p95: {entry.p95_latency_ms > 1000 ? `${(entry.p95_latency_ms / 1000).toFixed(1)}s` : `${entry.p95_latency_ms}ms`}
                         </span>
                       </div>
                     </div>
-                    <div style={{ paddingLeft: 30, marginTop: 3, fontSize: 10, color: C.textDim }}>
-                      {entry.runs} run{entry.runs !== 1 ? "s" : ""}
+                    <div style={{ paddingLeft: 30, marginTop: 2, fontSize: 10, color: C.textDim }}>
+                      {entry.consistent_runs}/{entry.total_runs} perfect · {entry.total_prompts} samples
                     </div>
                   </button>
                 ))}
@@ -605,12 +659,51 @@ export default function BenchmarkRunner() {
           {/* Status bar */}
           {status && (
             <div style={{ marginBottom: 24, display: "flex", alignItems: "center", gap: 12 }}>
-              <StatusPill status={status} />
-              {runId && (
-                <span style={{ fontSize: 11, color: C.textDim, fontFamily: C.mono }}>
-                  {runId}
-                </span>
+              {batchStatus ? (
+                <>
+                  <StatusPill status={batchStatus.pending === 0 && batchStatus.running === 0 ? "complete" : "running"} />
+                  <span style={{ fontSize: 13, color: C.text }}>{status}</span>
+                  {batchId && (
+                    <span style={{ fontSize: 11, color: C.textDim, fontFamily: C.mono }}>
+                      {batchId.slice(0, 8)}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <StatusPill status={status} />
+                  {runId && (
+                    <span style={{ fontSize: 11, color: C.textDim, fontFamily: C.mono }}>
+                      {runId}
+                    </span>
+                  )}
+                </>
               )}
+            </div>
+          )}
+
+          {/* Batch progress bar */}
+          {batchStatus && (batchStatus.running > 0 || batchStatus.pending > 0) && (
+            <div style={{ marginBottom: 24, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 24px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: C.textMuted }}>Batch Progress</span>
+                <span style={{ fontSize: 12, fontFamily: C.mono, color: C.text }}>
+                  {batchStatus.complete}/{batchStatus.total}
+                </span>
+              </div>
+              <div style={{ background: C.border, borderRadius: 4, height: 8, overflow: "hidden" }}>
+                <div style={{
+                  height: 8, borderRadius: 4,
+                  width: `${(batchStatus.complete / batchStatus.total) * 100}%`,
+                  background: C.accent,
+                  transition: "width 0.5s ease",
+                }} />
+              </div>
+              <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: C.textMuted }}>
+                <span>{shortModel(batchStatus.model_id)}</span>
+                {batchStatus.running > 0 && <span style={{ color: C.yellow }}>{batchStatus.running} running</span>}
+                {batchStatus.failed > 0 && <span style={{ color: C.red }}>{batchStatus.failed} failed</span>}
+              </div>
             </div>
           )}
 

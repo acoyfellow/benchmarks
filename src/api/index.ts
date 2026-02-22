@@ -53,6 +53,23 @@ app.get("/api/leaderboard", async (c) => {
   return c.json(result)
 })
 
+app.get("/api/models/:modelId/stats", async (c) => {
+  const modelId = c.req.param("modelId")
+  const result = await Effect.gen(function* () {
+    const db = yield* Db
+    const runScores = yield* db.getModelRunScores(decodeURIComponent(modelId))
+    const latencies = yield* db.getModelLatencies(decodeURIComponent(modelId))
+    return { model_id: decodeURIComponent(modelId), runs: runScores, latencies }
+  }).pipe(
+    Effect.provide(Db.layer(c.env.DB)),
+    Effect.catchAll((e) =>
+      Effect.succeed({ model_id: modelId, runs: [], latencies: [], error: String(e) })
+    ),
+    Effect.runPromise
+  )
+  return c.json(result)
+})
+
 app.route("/api/models", modelsRoute)
 app.route("/api/benchmarks", benchmarksRoute)
 app.route("/api/runs", runsRoute)
